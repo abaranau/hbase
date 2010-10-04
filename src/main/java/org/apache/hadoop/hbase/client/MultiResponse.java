@@ -38,11 +38,11 @@ import java.util.TreeMap;
 /**
  * A container for Result objects, grouped by regionName.
  */
-public class MultiResponse implements Writable {
+public class MultiResponse<R> implements Writable {
 
   // map of regionName to list of (Results paired to the original index for that
   // Result)
-  private Map<byte[], List<Pair<Integer, Result>>> results = new TreeMap<byte[], List<Pair<Integer, Result>>>(
+  private Map<byte[], List<Pair<Integer, R>>> results = new TreeMap<byte[], List<Pair<Integer, R>>>(
       Bytes.BYTES_COMPARATOR);
 
   public MultiResponse() {
@@ -68,32 +68,33 @@ public class MultiResponse implements Writable {
    *          (request). Second item is the Result. Result will be empty for
    *          successful Put and Delete actions.
    */
-  public void add(byte[] regionName, Pair<Integer, Result> r) {
-    List<Pair<Integer, Result>> rs = results.get(regionName);
+  public void add(byte[] regionName, Pair<Integer, R> r) {
+    List<Pair<Integer, R>> rs = results.get(regionName);
     if (rs == null) {
-      rs = new ArrayList<Pair<Integer, Result>>();
+      rs = new ArrayList<Pair<Integer, R>>();
       results.put(regionName, rs);
     }
     rs.add(r);
   }
 
-  public Map<byte[], List<Pair<Integer, Result>>> getResults() {
+  public Map<byte[], List<Pair<Integer, R>>> getResults() {
     return results;
   }
 
   @Override
   public void write(DataOutput out) throws IOException {
     out.writeInt(results.size());
-    for (Map.Entry<byte[], List<Pair<Integer, Result>>> e : results.entrySet()) {
+    for (Map.Entry<byte[], List<Pair<Integer, R>>> e : results.entrySet()) {
       Bytes.writeByteArray(out, e.getKey());
-      List<Pair<Integer, Result>> lst = e.getValue();
+      List<Pair<Integer, R>> lst = e.getValue();
       out.writeInt(lst.size());
-      for (Pair<Integer, Result> r : lst) {
+      for (Pair<Integer, R> r : lst) {
         if (r == null) {
           out.writeInt(-1); // Cant have index -1; on other side we recognize -1 as 'null'
         } else {
           out.writeInt(r.getFirst()); // Can this can npe!?!
-          HbaseObjectWritable.writeObject(out, r.getSecond(), Result.class, null);
+          R value = r.getSecond();
+          HbaseObjectWritable.writeObject(out, r.getSecond(), value.getClass(), null);
         }
       }
     }
@@ -106,15 +107,15 @@ public class MultiResponse implements Writable {
     for (int i = 0; i < mapSize; i++) {
       byte[] key = Bytes.readByteArray(in);
       int listSize = in.readInt();
-      List<Pair<Integer, Result>> lst = new ArrayList<Pair<Integer, Result>>(
+      List<Pair<Integer, R>> lst = new ArrayList<Pair<Integer, R>>(
           listSize);
       for (int j = 0; j < listSize; j++) {
         Integer idx = in.readInt();
         if (idx == -1) {
           lst.add(null); 
         } else {
-          Result r = (Result) HbaseObjectWritable.readObject(in, null);
-          lst.add(new Pair<Integer, Result>(idx, r));
+          R r = (R) HbaseObjectWritable.readObject(in, null);
+          lst.add(new Pair<Integer, R>(idx, r));
         }
       }
       results.put(key, lst);

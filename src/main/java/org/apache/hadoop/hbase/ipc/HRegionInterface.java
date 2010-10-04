@@ -30,6 +30,8 @@ import org.apache.hadoop.hbase.HServerInfo;
 import org.apache.hadoop.hbase.NotServingRegionException;
 import org.apache.hadoop.hbase.Stoppable;
 import org.apache.hadoop.hbase.client.Delete;
+import org.apache.hadoop.hbase.client.Exec;
+import org.apache.hadoop.hbase.client.ExecResult;
 import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.MultiAction;
 import org.apache.hadoop.hbase.client.MultiPut;
@@ -277,7 +279,7 @@ public interface HRegionInterface extends HBaseRPCProtocolVersion, Stoppable, Ab
    * @return MultiResult
    * @throws IOException
    */
-  public MultiResponse multi(MultiAction multi) throws IOException;
+  public <R> MultiResponse<R> multi(MultiAction<R> multi) throws IOException;
 
   /**
    * Multi put for putting multiple regions worth of puts at once.
@@ -364,4 +366,23 @@ public interface HRegionInterface extends HBaseRPCProtocolVersion, Stoppable, Ab
    * @throws IOException
    */
   public void replicateLogEntries(HLog.Entry[] entries) throws IOException;
+
+  /**
+   * Executes a single {@link org.apache.hadoop.hbase.ipc.CoprocessorProtocol}
+   * method using the registered protocol handlers.
+   * {@link CoprocessorProtocol} implementations must be registered via the
+   * {@link org.apache.hadoop.hbase.regionserver.HRegion#registerProtocol(Class, org.apache.hadoop.hbase.ipc.CoprocessorProtocol)}
+   * method before they are available.
+   *
+   * @param regionName name of the region against which the invocation is executed
+   * @param call an {@code Exec} instance identifying the protocol, method name,
+   *     and parameters for the method invocation
+   * @return an {@code ExecResult} instance containing the region name of the
+   *     invocation and the return value
+   * @throws IOException if no registered protocol handler is found or an error
+   *     occurs during the invocation
+   * @see org.apache.hadoop.hbase.regionserver.HRegion#registerProtocol(Class, org.apache.hadoop.hbase.ipc.CoprocessorProtocol)
+   */
+  ExecResult exec(byte[] regionName, Exec call)
+      throws IOException;
 }

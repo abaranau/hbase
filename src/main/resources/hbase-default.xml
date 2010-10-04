@@ -432,6 +432,13 @@
     </description>
   </property>
   <property>
+    <name>hbase.rpc.engine</name>
+    <value>org.apache.hadoop.hbase.ipc.WritableRpcEngine</value>
+    <description>Implementation of org.apache.hadoop.hbase.ipc.RpcEngine to be
+    used for client / server RPC call marshalling.
+    </description>
+  </property>
+  <property>
     <name>zookeeper.session.timeout</name>
     <value>60000</value>
     <description>ZooKeeper session timeout.

@@ -19,6 +19,8 @@
  */
 package org.apache.hadoop.hbase.client;
 
+import com.google.common.base.Function;
+import com.google.common.collect.Lists;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
@@ -34,11 +36,14 @@ import org.apache.hadoop.hbase.NotServingRegionException;
 import org.apache.hadoop.hbase.UnknownScannerException;
 import org.apache.hadoop.hbase.ZooKeeperConnectionException;
 import org.apache.hadoop.hbase.client.MetaScanner.MetaScannerVisitor;
+import org.apache.hadoop.hbase.ipc.CoprocessorProtocol;
+import org.apache.hadoop.hbase.ipc.ExecRPCInvoker;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.Pair;
 import org.apache.hadoop.hbase.util.Writables;
 
 import java.io.IOException;
+import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
@@ -46,7 +51,6 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadFactory;
@@ -1271,4 +1275,120 @@ public class HTable implements HTableInterface {
     return HConnectionManager.getConnection(HBaseConfiguration.create()).
     getRegionCachePrefetch(tableName);
   }
+
+  /**
+   * Creates and returns a proxy to the CoprocessorProtocol instance running in the
+   * region containing the specified row.  The row given does not actually have
+   * to exist.  Whichever region would contain the row based on start and end keys will
+   * be used.  Note that the {@code row} parameter is also not passed to the
+   * coprocessor handler registered for this protocol, unless the {@code row}
+   * is separately passed as an argument in a proxy method call.  The parameter
+   * here is just used to locate the region used to handle the call.
+   *
+   * @param protocol The class or interface defining the remote protocol
+   * @param row The row key used to identify the remote region location
+   * @return
+   */
+  public <T extends CoprocessorProtocol> T proxy(Class<T> protocol, byte[] row) {
+    return (T)Proxy.newProxyInstance(this.getClass().getClassLoader(),
+        new Class[]{protocol},
+        new ExecRPCInvoker(configuration,
+            connection,
+            protocol,
+            tableName,
+            row));
+  }
+
+  /**
+   * Invoke the passed {@link org.apache.hadoop.hbase.client.Batch.Call} against
+   * the {@link CoprocessorProtocol} instances running in the selected regions.
+   * All regions beginning with the region containing the <code>startKey</code>
+   * row, through to the region containing the <code>endKey</code> row (inclusive)
+   * will be used.  If <code>startKey</code> or <code>endKey</code> is
+   * <code>null</code>, the first and last regions in the table, respectively,
+   * will be used in the range selection.
+   *
+   * @param protocol the CoprocessorProtocol implementation to call
+   * @param startKey start region selection with region containing this row
+   * @param endKey select regions up to and including the region containing this row
+   * @param callable wraps the CoprocessorProtocol implementation method calls made per-region
+   * @param <T> CoprocessorProtocol subclass for the remote invocation
+   * @param <R> Return type for the {@link org.apache.hadoop.hbase.client.Batch.Call#call(Object)} method
+   * @return a <code>Map</code> of region names to {@link Batch.Call#call(Object)} return values
+   */
+  public <T extends CoprocessorProtocol, R> Map<byte[],R> exec(
+      Class<T> protocol, byte[] startKey, byte[] endKey, Batch.Call<T,R> callable)
+      throws IOException, Throwable {
+
+    final Map<byte[],R> results = new TreeMap<byte[],R>(Bytes.BYTES_COMPARATOR);
+    exec(protocol, startKey, endKey, callable, new Batch.Callback<R>(){
+      public void update(byte[] region, byte[] row, R value) {
+        results.put(region, value);
+      }
+    });
+    return results;
+  }
+
+  /**
+   * Invoke the passed {@link org.apache.hadoop.hbase.client.Batch.Call} against
+   * the {@link CoprocessorProtocol} instances running in the selected regions.
+   * All regions beginning with the region containing the <code>startKey</code>
+   * row, through to the region containing the <code>endKey</code> row (inclusive)
+   * will be used.  If <code>startKey</code> or <code>endKey</code> is
+   * <code>null</code>, the first and last regions in the table, respectively,
+   * will be used in the range selection.
+   *
+   * <p>
+   * For each result, the given {@link Batch.Callback#update(byte[], byte[], Object)}
+   * method will be called.
+   *</p>
+   *
+   * @param protocol the CoprocessorProtocol implementation to call
+   * @param startKey start region selection with region containing this row
+   * @param endKey select regions up to and including the region containing this row
+   * @param callable wraps the CoprocessorProtocol implementation method calls made per-region
+   * @param callback an instance upon which {@link Batch.Callback#update(byte[], byte[], Object)} with the {@link Batch.Call#call(Object)} return value for each region
+   * @param <T> CoprocessorProtocol subclass for the remote invocation
+   * @param <R> Return type for the {@link org.apache.hadoop.hbase.client.Batch.Call#call(Object)} method
+   */
+  public <T extends CoprocessorProtocol, R> void exec(
+      Class<T> protocol, byte[] startKey, byte[] endKey,
+      Batch.Call<T,R> callable, Batch.Callback<R> callback)
+      throws IOException, Throwable {
+
+    // get regions covered by the row range
+    List<byte[]> keys = getStartKeysInRange(startKey, endKey);
+    connection.processExecs(protocol, keys, tableName, pool, callable, callback);
+  }
+
+  private List<byte[]> getStartKeysInRange(byte[] start, byte[] end) throws IOException {
+    Pair<byte[][],byte[][]> startEndKeys = getStartEndKeys();
+    byte[][] startKeys = startEndKeys.getFirst();
+    byte[][] endKeys = startEndKeys.getSecond();
+
+    if (start == null) {
+      start = HConstants.EMPTY_START_ROW;
+    }
+    if (end == null) {
+      end = HConstants.EMPTY_END_ROW;
+    }
+
+    List<byte[]> rangeKeys = new ArrayList<byte[]>();
+    for (int i=0; i<startKeys.length; i++) {
+      if (Bytes.compareTo(start, startKeys[i]) >= 0 ) {
+        if (Bytes.equals(endKeys[i], HConstants.EMPTY_END_ROW) ||
+            Bytes.compareTo(start, endKeys[i]) < 0) {
+          rangeKeys.add(start);
+        }
+      } else if (Bytes.equals(end, HConstants.EMPTY_END_ROW) ||
+          Bytes.compareTo(startKeys[i], end) <= 0) {
+        rangeKeys.add(startKeys[i]);
+      } else {
+        break; // past stop
+      }
+    }
+
+    return rangeKeys;
+  }
+
 }
