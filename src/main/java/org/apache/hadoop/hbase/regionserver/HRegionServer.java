@@ -252,7 +252,7 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
    *
    * @param conf
    * @throws IOException
-   * @throws InterruptedException 
+   * @throws InterruptedException
    */
   public HRegionServer(Configuration conf) throws IOException, InterruptedException {
     this.fsOk = true;
@@ -367,7 +367,7 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
    * call it.
    *
    * @throws IOException
-   * @throws InterruptedException 
+   * @throws InterruptedException
    */
   private void initialize() throws IOException, InterruptedException {
     this.abortRequested = false;
@@ -434,7 +434,7 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
     this.clusterStatusTracker.start();
     this.clusterStatusTracker.blockUntilAvailable();
 
-    // Create the catalog tracker and start it; 
+    // Create the catalog tracker and start it;
     this.catalogTracker = new CatalogTracker(this.zooKeeper, this.connection,
       this, this.conf.getInt("hbase.regionserver.catalog.timeout", Integer.MAX_VALUE));
     catalogTracker.start();
@@ -751,7 +751,7 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
       // hack! Maps DFSClient => RegionServer for logs.  HDFS made this
       // config param for task trackers, but we can piggyback off of it.
       if (this.conf.get("mapred.task.id") == null) {
-        this.conf.set("mapred.task.id", 
+        this.conf.set("mapred.task.id",
             "hb_rs_" + this.serverInfo.getServerName() + "_" +
             System.currentTimeMillis());
       }
@@ -2297,7 +2297,7 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
     try {
       HRegion region = getRegion(regionName);
       if (region.getCoprocessorHost() != null) {
-        amount = region.getCoprocessorHost().preIncrementColumnValue(row, 
+        amount = region.getCoprocessorHost().preIncrementColumnValue(row,
           family, qualifier, amount, writeToWAL);
       }
       long retval = region.incrementColumnValue(row, family, qualifier, amount,
@@ -2449,7 +2449,7 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
   public CompactionRequestor getCompactionRequester() {
     return this.compactSplitThread;
   }
-  
+
   @Override
   public ZooKeeperWatcher getZooKeeperWatcher() {
     return this.zooKeeper;

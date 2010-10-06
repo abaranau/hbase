@@ -202,7 +202,7 @@ public class SplitTransaction {
       services.removeFromOnlineRegions(this.parent.getRegionInfo().getEncodedName());
     }
     this.journal.add(JournalEntry.OFFLINED_PARENT);
-    
+
     // TODO: If the below were multithreaded would we complete steps in less
     // elapsed time?  St.Ack 20100920
 
@@ -500,7 +500,7 @@ public class SplitTransaction {
    * Call this method on initial region deploy.  Cleans up any mess
    * left by previous deploys of passed <code>r</code> region.
    * @param r
-   * @throws IOException 
+   * @throws IOException
    */
   static void cleanupAnySplitDetritus(final HRegion r) throws IOException {
     Path splitdir = getSplitDir(r);

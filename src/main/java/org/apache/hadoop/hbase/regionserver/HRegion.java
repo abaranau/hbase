@@ -456,7 +456,7 @@ public class HRegion implements HeapSize { // , Writable{
   public boolean isClosing() {
     return this.closing.get();
   }
-  
+
   boolean areWritesEnabled() {
     synchronized(this.writestate) {
       return this.writestate.writesEnabled;
@@ -777,7 +777,7 @@ public class HRegion implements HeapSize { // , Writable{
         } finally {
           long now = EnvironmentEdgeManager.currentTimeMillis();
           LOG.info(((completed) ? "completed" : "aborted")
-              + " compaction on region " + this 
+              + " compaction on region " + this
               + " after " + StringUtils.formatTimeDiff(now, startTime));
         }
       } finally {

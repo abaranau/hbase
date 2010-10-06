@@ -50,7 +50,7 @@ public interface RegionServerServices extends OnlineRegions {
    * @return Implementation of {@link CompactionRequestor} or null.
    */
   public CompactionRequestor getCompactionRequester();
-  
+
   /**
    * @return Implementation of {@link FlushRequester} or null.
    */
