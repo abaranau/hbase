@@ -587,6 +587,12 @@ public class AssignmentManager extends ZooKeeperListener {
    * @param regionName server to be assigned
    */
   public void assign(HRegionInfo region) {
+    String tableName = region.getTableDesc().getNameAsString();
+    if (isTableDisabled(tableName)) {
+      LOG.info("Table " + tableName + " disabled; skipping assign of " +
+        region.getRegionNameAsString());
+      return;
+    }
     RegionState state = addToRegionsInTransition(region);
     synchronized (state) {
       assign(state);
@@ -1006,6 +1012,27 @@ public class AssignmentManager extends ZooKeeperListener {
   public boolean isTableDisabled(String tableName) {
     synchronized(disabledTables) {
       return disabledTables.contains(tableName);
+    }
+  }
+
+  /**
+   * Wait on regions to clean regions-in-transition.
+   * @param hri Region to wait on.
+   * @throws IOException
+   */
+  public void waitOnRegionToClearRegionsInTransition(final HRegionInfo hri)
+  throws IOException {
+    if (isRegionInTransition(hri) == null) return;
+    RegionState rs = null;
+    // There is already a timeout monitor on regions in transition so I
+    // should not have to have one here too?
+    while(!this.master.isStopped() && (rs = isRegionInTransition(hri)) != null) {
+      Threads.sleep(1000);
+      LOG.info("Waiting on " + rs + " to clear regions-in-transition");
+    }
+    if (this.master.isStopped()) {
+      LOG.info("Giving up wait on regions in " +
+        "transition because stoppable.isStopped is set");
     }
   }
 

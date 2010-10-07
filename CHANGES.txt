@@ -565,6 +565,11 @@ Release 0.21.0 - Unreleased
    HBASE-3064  Long sleeping in HConnectionManager after thread is interrupted
                (Bruno Dumon via Stack)
    HBASE-2753  Remove sorted() methods from Result now that Gets are Scans
+   HBASE-3059  TestReadWriteConsistencyControl occasionally hangs (Hairong 
+   	       via Ryan)
+   HBASE-2906  [rest/stargate] URI decoding in RowResource
+   HBASE-3008  Memstore.updateColumnValue passes wrong flag to heapSizeChange
+   	       (Causes memstore size to go negative)
 
   IMPROVEMENTS
    HBASE-1760  Cleanup TODOs in HTable
@@ -971,6 +976,8 @@ Release 0.21.0 - Unreleased
    HBASE-3070  Add to hbaseadmin means of shutting down a regionserver
    HBASE-2996  Fix and clean up Maven (Lars Francke via Stack)
    HBASE-2917  Reseek directly to next row (Pranav Khaitan)
+   HBASE-2907  [rest/stargate] Improve error response when trying to create a
+               scanner on a nonexistant table
 
   NEW FEATURES
    HBASE-1961  HBase EC2 scripts
@@ -1022,6 +1029,9 @@ Release 0.21.0 - Unreleased
    HBASE-3043  'hbase-daemon.sh stop regionserver' should kill compactions
                that are in progress
                (Nicolas Spiegelberg via Stack)
+   HBASE-3073  New APIs for Result, faster implementation for some calls
+   HBASE-3053  Add ability to have multiple Masters LocalHBaseCluster for
+               test writing
 
   OPTIMIZATIONS
    HBASE-410   [testing] Speed up the test suite

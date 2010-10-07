@@ -68,6 +68,10 @@ public class DisableTableHandler extends EventHandler {
   }
 
   private void handleDisableTable() throws IOException {
+    if (this.assignmentManager.isTableDisabled(this.tableNameStr)) {
+      LOG.info("Table " + tableNameStr + " is already disabled; skipping disable");
+      return;
+    }
     // Set the table as disabled so it doesn't get re-onlined
     assignmentManager.disableTable(this.tableNameStr);
     // Get the online regions of this table.
@@ -76,8 +80,12 @@ public class DisableTableHandler extends EventHandler {
     // TODO: Confirm we have parallel closing going on.
     List<HRegionInfo> regions = assignmentManager.getRegionsOfTable(tableName);
     // Unassign the online regions
-    for(HRegionInfo region : regions) {
+    for(HRegionInfo region: regions) {
       assignmentManager.unassign(region);
+    }
+    // Wait on table's regions to clear region in transition.
+    for (HRegionInfo region: regions) {
+      this.assignmentManager.waitOnRegionToClearRegionsInTransition(region);
     }
   }
 }
