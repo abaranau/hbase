@@ -33,6 +33,7 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
 import org.apache.hadoop.hbase.client.*;
+import org.apache.hadoop.hbase.client.coprocessor.Batch;
 import org.apache.hadoop.hbase.ipc.CoprocessorProtocol;
 import org.apache.hadoop.util.StringUtils;
 
@@ -608,22 +609,22 @@ public class RemoteHTable implements HTableInterface {
   }
 
   @Override
-  public <T extends CoprocessorProtocol> T proxy(Class<T> protocol, byte[] row) {
-    throw new UnsupportedOperationException("proxy not implemented");
+  public <T extends CoprocessorProtocol> T coprocessorProxy(Class<T> protocol, byte[] row) {
+    throw new UnsupportedOperationException("coprocessorProxy not implemented");
   }
 
   @Override
-  public <T extends CoprocessorProtocol, R> Map<byte[], R> exec(
+  public <T extends CoprocessorProtocol, R> Map<byte[], R> coprocessorExec(
       Class<T> protocol, byte[] startKey, byte[] endKey, Batch.Call<T, R> callable)
       throws IOException, Throwable {
-    throw new UnsupportedOperationException("exec not implemented");
+    throw new UnsupportedOperationException("coprocessorExec not implemented");
   }
 
   @Override
-  public <T extends CoprocessorProtocol, R> void exec(
+  public <T extends CoprocessorProtocol, R> void coprocessorExec(
       Class<T> protocol, byte[] startKey, byte[] endKey,
       Batch.Call<T, R> callable, Batch.Callback<R> callback)
       throws IOException, Throwable {
-    throw new UnsupportedOperationException("exec not implemented");
+    throw new UnsupportedOperationException("coprocessorExec not implemented");
   }
 }

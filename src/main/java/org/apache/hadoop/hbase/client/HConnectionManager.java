@@ -49,6 +49,7 @@ import org.apache.hadoop.hbase.RemoteExceptionHandler;
 import org.apache.hadoop.hbase.TableNotFoundException;
 import org.apache.hadoop.hbase.ZooKeeperConnectionException;
 import org.apache.hadoop.hbase.client.MetaScanner.MetaScannerVisitor;
+import org.apache.hadoop.hbase.client.coprocessor.Batch;
 import org.apache.hadoop.hbase.ipc.*;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.Pair;
@@ -1056,21 +1057,20 @@ public class HConnectionManager {
         throw new IllegalArgumentException("argument results must be the same size as argument list");
       }
 
-      Object[] tmpResults = processBatchCallback(list, tableName, pool, null);
-      System.arraycopy(tmpResults, 0, results, 0, results.length);
+      processBatchCallback(list, tableName, pool, results, null);
     }
 
     /**
-     * Executes the given {@link org.apache.hadoop.hbase.client.Batch.Call} callable for each row in the
-     * given list and invokes {@link org.apache.hadoop.hbase.client.Batch.Callback#update(byte[], byte[], Object)}
+     * Executes the given {@link org.apache.hadoop.hbase.client.coprocessor.Batch.Call} callable for each row in the
+     * given list and invokes {@link org.apache.hadoop.hbase.client.coprocessor.Batch.Callback#update(byte[], byte[], Object)}
      * for each result returned.
      *
      * @param protocol the protocol interface being called
      * @param rows a list of row keys for which the callable should be invoked
      * @param tableName table name for the coprocessor invoked
      * @param pool ExecutorService used to submit the calls per row
-     * @param callable instance on which to invoke {@link org.apache.hadoop.hbase.client.Batch.Call#call(Object)} for each row
-     * @param callback instance on which to invoke {@link org.apache.hadoop.hbase.client.Batch.Callback#update(byte[], byte[], Object)} for each result
+     * @param callable instance on which to invoke {@link org.apache.hadoop.hbase.client.coprocessor.Batch.Call#call(Object)} for each row
+     * @param callback instance on which to invoke {@link org.apache.hadoop.hbase.client.coprocessor.Batch.Callback#update(byte[], byte[], Object)} for each result
      * @param <T> the protocol interface type
      * @param <R> the callable's return type
      * @throws IOException
@@ -1122,22 +1122,22 @@ public class HConnectionManager {
      * Parameterized batch processing, allowing varying return types for different
      * {@link Row} implementations.
      */
-    public <R> R[] processBatchCallback(
+    public <R> void processBatchCallback(
         List<? extends Row> list,
         byte[] tableName,
         ExecutorService pool,
+        R[] results,
         Batch.Callback<R> callback) throws IOException {
 
-      if (list.size() == 0) {
-        return null;
+      // results must be the same size as list
+      if (results.length != list.size()) {
+        throw new IllegalArgumentException("argument results must be the same size as argument list");
       }
-      List<R> results = new ArrayList<R>(list.size());
-      // prefill to set size
-      for (int i=0; i<list.size(); i++) {
-        results.add(null);
+      if (list.size() == 0) {
+        return;
       }
       if (LOG.isDebugEnabled()) {
-        LOG.debug("expecting "+results.size()+" results");
+        LOG.debug("expecting "+results.length+" results");
       }
 
       List<Row> workingList = new ArrayList<Row>(list);
@@ -1215,7 +1215,7 @@ public class HConnectionManager {
                     LOG.debug("Failures for region: " + Bytes.toStringBinary(regionName) + ", removing from cache");
                   } else {
                     // success
-                    results.set(regionResult.getFirst(), regionResult.getSecond());
+                    results[regionResult.getFirst()] = regionResult.getSecond();
                     if (callback != null) {
                       callback.update(e.getKey(),
                           list.get(regionResult.getFirst()).getRow(),
@@ -1242,39 +1242,37 @@ public class HConnectionManager {
               singleRowCause = e.getCause();
             }
           }
-          // Find failures (i.e. null Result), and add them to the workingList (in
-          // order), so they can be retried.
-          retry = false;
-          workingList.clear();
-          for (int i = 0; i < results.size(); i++) {
-            if (results.get(i) == null) {
-              retry = true;
-              Row row = list.get(i);
-              workingList.add(row);
-              deleteCachedLocation(tableName, row.getRow());
-            } else {
-              // add null to workingList, so the order remains consistent with the original list argument.
-              workingList.add(null);
-            }
-          }
         }
 
-        if (Thread.currentThread().isInterrupted()) {
-          throw new IOException("Aborting attempt because of a thread interruption");
-        }
-
-        if (retry) {
-          // ran out of retries and didn't successfully finish everything!
-          if (singleRowCause != null) {
-            throw new IOException(singleRowCause);
+        // Find failures (i.e. null Result), and add them to the workingList (in
+        // order), so they can be retried.
+        retry = false;
+        workingList.clear();
+        for (int i = 0; i < results.length; i++) {
+          if (results[i] == null) {
+            retry = true;
+            Row row = list.get(i);
+            workingList.add(row);
+            deleteCachedLocation(tableName, row.getRow());
           } else {
-            throw new RetriesExhaustedException("Still had " + workingList.size()
-                + " actions left after retrying " + numRetries + " times.");
+            // add null to workingList, so the order remains consistent with the original list argument.
+            workingList.add(null);
           }
         }
       }
+      if (Thread.currentThread().isInterrupted()) {
+        throw new IOException("Aborting attempt because of a thread interruption");
+      }
 
-      return (R[])results.toArray();
+      if (retry) {
+        // ran out of retries and didn't successfully finish everything!
+        if (singleRowCause != null) {
+          throw new IOException(singleRowCause);
+        } else {
+          throw new RetriesExhaustedException("Still had " + workingList.size()
+              + " actions left after retrying " + numRetries + " times.");
+        }
+      }
     }
 
     /**

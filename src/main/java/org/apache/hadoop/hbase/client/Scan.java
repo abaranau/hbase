@@ -76,7 +76,7 @@ import java.util.TreeSet;
  * Expert: To explicitly disable server-side block caching for this scan,
  * execute {@link #setCacheBlocks(boolean)}.
  */
-public class Scan implements Writable, RowRange {
+public class Scan implements Writable {
   private static final byte SCAN_VERSION = (byte)1;
   private byte [] startRow = HConstants.EMPTY_START_ROW;
   private byte [] stopRow  = HConstants.EMPTY_END_ROW;
@@ -357,7 +357,6 @@ public class Scan implements Writable, RowRange {
   /**
    * @return the startrow
    */
-  @Override
   public byte [] getStartRow() {
     return this.startRow;
   }
@@ -365,7 +364,6 @@ public class Scan implements Writable, RowRange {
   /**
    * @return the stoprow
    */
-  @Override
   public byte [] getStopRow() {
     return this.stopRow;
   }

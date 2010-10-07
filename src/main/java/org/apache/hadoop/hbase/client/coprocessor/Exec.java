@@ -17,10 +17,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hadoop.hbase.client;
+package org.apache.hadoop.hbase.client.coprocessor;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HBaseConfiguration;
+import org.apache.hadoop.hbase.client.Row;
 import org.apache.hadoop.hbase.io.HbaseObjectWritable;
 import org.apache.hadoop.hbase.ipc.CoprocessorProtocol;
 import org.apache.hadoop.hbase.ipc.Invocation;
@@ -32,7 +33,21 @@ import java.io.IOException;
 import java.lang.reflect.Method;
 
 /**
- * Represents an arbitrary protocol method invocation.
+ * Represents an arbitrary method invocation against a Coprocessor
+ * instance.  In order for a coprocessor implementation to be remotely callable
+ * by clients, it must define and implement a {@link CoprocessorProtocol}
+ * subclass.  Only methods defined in the {@code CoprocessorProtocol} interface
+ * will be callable by clients.
+ *
+ * <p>
+ * This class is used internally by {@link org.apache.hadoop.hbase.client.HTable#coprocessorExec(Class, byte[], byte[], org.apache.hadoop.hbase.client.coprocessor.Batch.Call, org.apache.hadoop.hbase.client.coprocessor.Batch.Callback)}
+ * to wrap the {@code CoprocessorProtocol} method invocations requested in
+ * RPC calls.  It should not be used directly by HBase clients.
+ * </p>
+ *
+ * @see ExecResult
+ * @see org.apache.hadoop.hbase.client.HTable#coprocessorExec(Class, byte[], byte[], org.apache.hadoop.hbase.client.coprocessor.Batch.Call)
+ * @see org.apache.hadoop.hbase.client.HTable#coprocessorExec(Class, byte[], byte[], org.apache.hadoop.hbase.client.coprocessor.Batch.Call, org.apache.hadoop.hbase.client.coprocessor.Batch.Callback)
  */
 public class Exec extends Invocation implements Row {
   private Configuration conf = HBaseConfiguration.create();

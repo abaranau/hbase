@@ -24,8 +24,6 @@ import java.lang.Thread.UncaughtExceptionHandler;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryUsage;
 import java.lang.reflect.Constructor;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.net.BindException;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
@@ -77,8 +75,8 @@ import org.apache.hadoop.hbase.catalog.MetaEditor;
 import org.apache.hadoop.hbase.catalog.RootLocationEditor;
 import org.apache.hadoop.hbase.client.Action;
 import org.apache.hadoop.hbase.client.Delete;
-import org.apache.hadoop.hbase.client.Exec;
-import org.apache.hadoop.hbase.client.ExecResult;
+import org.apache.hadoop.hbase.client.coprocessor.Exec;
+import org.apache.hadoop.hbase.client.coprocessor.ExecResult;
 import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.HConnection;
 import org.apache.hadoop.hbase.client.HConnectionManager;
@@ -2373,7 +2371,7 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
             response.add(regionName, new Pair<Integer, Result>(
                 a.getOriginalIndex(), new Result()));
           } else if (action instanceof Exec) {
-            ExecResult result = exec(regionName, (Exec)action);
+            ExecResult result = execCoprocessor(regionName, (Exec)action);
             response.add(regionName, new Pair<Integer, Object>(
                 a.getOriginalIndex(), result.getValue()
             ));
@@ -2429,7 +2427,7 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
    * @see org.apache.hadoop.hbase.regionserver.HRegion#registerProtocol(Class, org.apache.hadoop.hbase.ipc.CoprocessorProtocol)
    */
   @Override
-  public ExecResult exec(byte[] regionName, Exec call)
+  public ExecResult execCoprocessor(byte[] regionName, Exec call)
       throws IOException {
     checkOpen();
     requestCount.incrementAndGet();
@@ -2468,14 +2466,11 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
   public CompactionRequestor getCompactionRequester() {
     return this.compactSplitThread;
   }
-<<<<<<< HEAD
-  
+
   @Override
   public ZooKeeperWatcher getZooKeeperWatcher() {
     return this.zooKeeper;
   }
-=======
->>>>>>> trunk
 
   //
   // Main program and support routines
