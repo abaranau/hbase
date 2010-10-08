@@ -25,6 +25,7 @@ import org.apache.hadoop.hbase.ClusterStatus;
 import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.UnknownRegionException;
+import org.apache.hadoop.security.KerberosInfo;
 
 /**
  * Clients interact with the HMasterInterface to gain access to meta-level
@@ -35,6 +36,8 @@ import org.apache.hadoop.hbase.UnknownRegionException;
  * number in HBaseRPCProtocolVersion
  *
  */
+@KerberosInfo(
+    serverPrincipal = "hbase.master.kerberos.principal")
 public interface HMasterInterface extends HBaseRPCProtocolVersion {
 
   /** @return true if master is available */

@@ -329,6 +329,7 @@ public class HBaseRPC {
    * @return values
    * @throws IOException e
    */
+  @Deprecated
   public static Object[] call(Method method, Object[][] params,
       InetSocketAddress[] addrs,
       Class<? extends VersionedProtocol> protocol,

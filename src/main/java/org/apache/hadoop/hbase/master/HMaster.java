@@ -72,6 +72,7 @@ import org.apache.hadoop.hbase.master.handler.TableAddFamilyHandler;
 import org.apache.hadoop.hbase.master.handler.TableDeleteFamilyHandler;
 import org.apache.hadoop.hbase.master.handler.TableModifyFamilyHandler;
 import org.apache.hadoop.hbase.regionserver.HRegion;
+import org.apache.hadoop.hbase.security.HBasePolicyProvider;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.InfoServer;
 import org.apache.hadoop.hbase.util.Pair;
@@ -85,6 +86,7 @@ import org.apache.hadoop.io.MapWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.ipc.RemoteException;
 import org.apache.hadoop.net.DNS;
+import org.apache.hadoop.security.SecurityUtil;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.Watcher;
 
@@ -194,6 +196,12 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
       false, conf,
       0); // this is a DNC w/o high priority handlers
     this.address = new HServerAddress(rpcServer.getListenerAddress());
+
+    // initialize server principal
+    SecurityUtil.login(conf, "hbase.master.keytab.file",
+        "hbase.master.kerberos.principal", this.address.getHostname());
+    HBasePolicyProvider.init(conf);
+    // TODO: do we need a secret manager for digest auth?  If so need to set it in RpcServer here
 
     // set the thread name now we have an address
     setName(MASTER + "-" + this.address);

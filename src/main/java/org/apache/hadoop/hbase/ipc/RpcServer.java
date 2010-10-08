@@ -26,7 +26,6 @@ import org.apache.hadoop.ipc.VersionedProtocol;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.nio.ByteBuffer;
 
 /**
  */

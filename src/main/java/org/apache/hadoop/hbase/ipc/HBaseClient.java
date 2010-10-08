@@ -23,6 +23,7 @@ package org.apache.hadoop.hbase.ipc;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.security.HBaseSaslRpcServer;
 import org.apache.hadoop.io.DataOutputBuffer;
 import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.io.Writable;
@@ -135,7 +136,7 @@ public class HBaseClient {
   }
 
   /** A call waiting for a value. */
-  private class Call {
+  protected class Call {
     final int id;                                       // call id
     final Writable param;                               // parameter
     Writable value;                               // value, null if error
@@ -203,7 +204,8 @@ public class HBaseClient {
       Class<? extends VersionedProtocol> protocol = remoteId.getProtocol();
 
       header = new ConnectionHeader(
-          protocol == null ? null : protocol.getName(), ticket);
+          protocol == null ? null : protocol.getName(), ticket,
+          HBaseSaslRpcServer.AuthMethod.SIMPLE);
 
       this.setName("IPC Client (" + socketFactory.hashCode() +") connection to " +
         remoteId.getAddress().toString() +
@@ -599,7 +601,7 @@ public class HBaseClient {
   }
 
   /** Call implementation used for parallel calls. */
-  private class ParallelCall extends Call {
+  protected class ParallelCall extends Call {
     private final ParallelResults results;
     protected final int index;
 
@@ -617,7 +619,7 @@ public class HBaseClient {
   }
 
   /** Result collector for parallel calls. */
-  private static class ParallelResults {
+  protected static class ParallelResults {
     protected final Writable[] values;
     protected int size;
     protected int count;
@@ -891,7 +893,7 @@ public class HBaseClient {
    * This class holds the address and the user ticket. The client connections
    * to servers are uniquely identified by <remoteAddress, ticket>
    */
-  private static class ConnectionId {
+  protected static class ConnectionId {
     final InetSocketAddress address;
     final UserGroupInformation ticket;
     Class<? extends VersionedProtocol> protocol;
@@ -922,8 +924,8 @@ public class HBaseClient {
      if (obj instanceof ConnectionId) {
        ConnectionId id = (ConnectionId) obj;
        return address.equals(id.address) && protocol == id.protocol &&
-           ticket == id.ticket;
-       //Note : ticket is a ref comparision.
+              ((ticket != null && ticket.equals(id.ticket)) ||
+               (ticket == id.ticket));
      }
      return false;
     }
@@ -932,8 +934,7 @@ public class HBaseClient {
     public int hashCode() {
       return address.hashCode() + PRIME * (
                   PRIME * System.identityHashCode(protocol) ^
-                  System.identityHashCode(ticket)
-                );
+             (ticket == null ? 0 : ticket.hashCode()) );
     }
   }
 }

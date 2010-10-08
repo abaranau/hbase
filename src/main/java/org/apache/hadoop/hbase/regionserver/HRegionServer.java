@@ -103,6 +103,7 @@ import org.apache.hadoop.hbase.regionserver.metrics.RegionServerMetrics;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
 import org.apache.hadoop.hbase.regionserver.wal.WALObserver;
 import org.apache.hadoop.hbase.replication.regionserver.Replication;
+import org.apache.hadoop.hbase.security.HBasePolicyProvider;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.FSUtils;
 import org.apache.hadoop.hbase.util.InfoServer;
@@ -115,6 +116,7 @@ import org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher;
 import org.apache.hadoop.io.MapWritable;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.net.DNS;
+import org.apache.hadoop.security.SecurityUtil;
 import org.apache.hadoop.util.StringUtils;
 import org.apache.zookeeper.KeeperException;
 
@@ -307,6 +309,10 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
       throw new NullPointerException("Server address cannot be null; "
           + "hbase-958 debugging");
     }
+
+    SecurityUtil.login(conf, "hbase.regionserver.keytab.file",
+        "hbase.regionserver.kerberos.principal", serverInfo.getHostname());
+    HBasePolicyProvider.init(conf);
   }
 
   private static final int NORMAL_QOS = 0;

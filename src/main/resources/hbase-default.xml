@@ -431,9 +431,75 @@
     supported now: murmur (MurmurHash) and jenkins (JenkinsHash).
     </description>
   </property>
+
+  <!-- The following properties configure authentication information for
+       HBase processes when using Kerberos security.  There are no default
+       values, included here for documentation purposes -->
+  <property>
+    <name>hbase.master.keytab.file</name>
+    <value></value>
+    <description>Full path to the kerberos keytab file to use for logging in
+    the configured HMaster server principal.
+    </description>
+  </property>
+  <property>
+    <name>hbase.master.kerberos.principal</name>
+    <value></value>
+    <description>The kerberos principal name that should be used to run the
+    HMaster process.  The principal name should be in the form:
+    user/hostname@DOMAIN.  If "_HOST" is used as the hostname portion, it will
+    be replaced with the actual hostname of the running instance.
+    </description>
+  </property>
+  <property>
+    <name>hbase.master.kerberos.https.principal</name>
+    <value></value>
+    <description>The kerberos principal name that should be used to run the
+    HMaster web UI process.  The principal name should be in the form:
+    user/hostname@DOMAIN.  If "_HOST" is used as the hostname portion, it will
+    be replaced with the actual hostname of the running instance.
+    </description>
+  </property>
+  <property>
+    <name>hbase.regionserver.keytab.file</name>
+    <value></value>
+    <description>Full path to the kerberos keytab file to use for logging in
+    the configured HRegionServer server principal.
+    </description>
+  </property>
+  <property>
+    <name>hbase.regionserver.kerberos.principal</name>
+    <value></value>
+    <description>The kerberos principal name that should be used to run the
+    HRegionServer process.  The principal name should be in the form:
+    user/hostname@DOMAIN.  If "_HOST" is used as the hostname portion, it will
+    be replaced with the actual hostname of the running instance.  An entry
+    for this principal must exist in the file specified in
+    hbase.regionserver.keytab.file
+    </description>
+  </property>
+  <property>
+    <name>hbase.regionserver.kerberos.https.principal</name>
+    <value></value>
+    <description>The kerberos principal name that should be used to run the
+    HRegionServer web UI process.  The principal name should be in the form:
+    user/hostname@DOMAIN.  If "_HOST" is used as the hostname portion, it will
+    be replaced with the actual hostname of the running instance.  An entry
+    for this principal must exist in the file specified in
+    hbase.regionserver.keytab.file
+    </description>
+  </property>
+  <property>
+    <name>hadoop.policy.file</name>
+    <value>hbase-policy.xml</value>
+    <description>The policy configuration file used by RPC servers to make
+      authorization decisions on client requests.
+    </description>
+  </property>
+
   <property>
     <name>hbase.rpc.engine</name>
-    <value>org.apache.hadoop.hbase.ipc.WritableRpcEngine</value>
+    <value>org.apache.hadoop.hbase.ipc.SecureRpcEngine</value>
     <description>Implementation of org.apache.hadoop.hbase.ipc.RpcEngine to be
     used for client / server RPC call marshalling.
     </description>

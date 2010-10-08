@@ -82,6 +82,17 @@ public abstract class HBaseServer implements RpcServer {
    * How many calls/handler are allowed in the queue.
    */
   private static final int MAX_QUEUE_SIZE_PER_HANDLER = 100;
+  private static final int IPC_SERVER_HANDLER_QUEUE_SIZE_DEFAULT = 100;
+  private static final String  IPC_SERVER_HANDLER_QUEUE_SIZE_KEY =
+                                            "ipc.server.handler.queue.size";
+
+  /**
+   * Initial and max size of response buffer
+   */
+  static int INITIAL_RESP_BUF_SIZE = 10240;
+  static final String IPC_SERVER_RPC_MAX_RESPONSE_SIZE_KEY =
+                        "ipc.server.max.response.size";
+  static final int IPC_SERVER_RPC_MAX_RESPONSE_SIZE_DEFAULT = 64*1024;
 
   public static final Log LOG =
     LogFactory.getLog("org.apache.hadoop.ipc.HBaseServer");
@@ -167,6 +178,7 @@ public abstract class HBaseServer implements RpcServer {
   protected int socketSendBufferSize;
   protected final boolean tcpNoDelay;   // if T then disable Nagle's Algorithm
   protected final boolean tcpKeepAlive; // if T then use keepalives
+  protected final int maxRespSize;
 
   volatile protected boolean running = true;         // true while server runs
   protected BlockingQueue<Call> callQueue; // queued calls
@@ -217,7 +229,7 @@ public abstract class HBaseServer implements RpcServer {
   }
 
   /** A call queued for handling. */
-  private static class Call {
+  protected static class Call {
     protected int id;                             // the client's call id
     protected Writable param;                     // the parameter passed
     protected Connection connection;              // connection to client
@@ -427,7 +439,7 @@ public abstract class HBaseServer implements RpcServer {
           if (errorHandler != null) {
             if (errorHandler.checkOOME(e)) {
               LOG.info(getName() + ": exiting on OOME");
-              closeCurrentConnection(key);
+              closeCurrentConnection(key, e);
               cleanupConnections(true);
               return;
             }
@@ -436,12 +448,12 @@ public abstract class HBaseServer implements RpcServer {
             // log the event and sleep for a minute and give
             // some thread(s) a chance to finish
             LOG.warn("Out of Memory in server select", e);
-            closeCurrentConnection(key);
+            closeCurrentConnection(key, e);
             cleanupConnections(true);
             try { Thread.sleep(60000); } catch (Exception ignored) {}
       }
         } catch (Exception e) {
-          closeCurrentConnection(key);
+          closeCurrentConnection(key, e);
         }
         cleanupConnections(false);
       }
@@ -463,13 +475,16 @@ public abstract class HBaseServer implements RpcServer {
       }
     }
 
-    private void closeCurrentConnection(SelectionKey key) {
+    private void closeCurrentConnection(SelectionKey key, Throwable e) {
       if (key != null) {
         Connection c = (Connection)key.attachment();
         if (c != null) {
-          if (LOG.isDebugEnabled())
-            LOG.debug(getName() + ": disconnecting client " + c.getHostAddress());
+          if (LOG.isDebugEnabled()) {
+            LOG.debug(getName() + ": disconnecting client " + c.getHostAddress() +
+                (e != null ? " on error " + e.getMessage() : ""));
+          }
           closeConnection(c);
+          c = null;
         }
       }
     }
@@ -561,7 +576,7 @@ public abstract class HBaseServer implements RpcServer {
   }
 
   // Sends responses of RPC back to clients.
-  private class Responder extends Thread {
+  protected class Responder extends Thread {
     private Selector writeSelector;
     private int pending;         // connections waiting to register
 
@@ -622,7 +637,11 @@ public abstract class HBaseServer implements RpcServer {
           }
 
           for(Call call : calls) {
-            doPurge(call, now);
+            try {
+              doPurge(call, now);
+            } catch (IOException e) {
+              LOG.warn("Error in purging old calls " + e);
+            }
           }
         } catch (OutOfMemoryError e) {
           if (errorHandler != null) {
@@ -638,7 +657,7 @@ public abstract class HBaseServer implements RpcServer {
             //
             LOG.warn("Out of Memory in server select", e);
             try { Thread.sleep(60000); } catch (Exception ignored) {}
-      }
+          }
         } catch (Exception e) {
           LOG.warn("Exception in Responder " +
                    StringUtils.stringifyException(e));
@@ -676,9 +695,10 @@ public abstract class HBaseServer implements RpcServer {
     // Remove calls that have been pending in the responseQueue
     // for a long time.
     //
-    private void doPurge(Call call, long now) {
-      synchronized (call.connection.responseQueue) {
-        Iterator<Call> iter = call.connection.responseQueue.listIterator(0);
+    private void doPurge(Call call, long now) throws IOException {
+      LinkedList<Call> responseQueue = call.connection.responseQueue;
+      synchronized (responseQueue) {
+        Iterator<Call> iter = responseQueue.listIterator(0);
         while (iter.hasNext()) {
           Call nextCall = iter.next();
           if (now > nextCall.timestamp + PURGE_INTERVAL) {
@@ -783,7 +803,7 @@ public abstract class HBaseServer implements RpcServer {
     //
     // Enqueue a response from the application.
     //
-    void doRespond(Call call) throws IOException {
+    protected void doRespond(Call call) throws IOException {
       synchronized (call.connection.responseQueue) {
         call.connection.responseQueue.addLast(call);
         if (call.connection.responseQueue.size() == 1) {
@@ -809,7 +829,7 @@ public abstract class HBaseServer implements RpcServer {
   }
 
   /** Reads calls from a connection and queues them for handling. */
-  private class Connection {
+  protected class Connection {
     private boolean versionRead = false; //if initial signature and
                                          //version are read
     private boolean headerRead = false;  //if the connection header that
@@ -943,7 +963,7 @@ public abstract class HBaseServer implements RpcServer {
           dataLengthBuffer.clear();
           data.flip();
           if (headerRead) {
-            processData();
+            processData(data.array());
             data = null;
             return count;
           }
@@ -973,9 +993,9 @@ public abstract class HBaseServer implements RpcServer {
       ticket = header.getUgi();
     }
 
-    private void processData() throws  IOException, InterruptedException {
+    protected void processData(byte[] buf) throws  IOException, InterruptedException {
       DataInputStream dis =
-        new DataInputStream(new ByteArrayInputStream(data.array()));
+        new DataInputStream(new ByteArrayInputStream(buf));
       int id = dis.readInt();                    // try to read an id
 
       if (LOG.isDebugEnabled())
@@ -1040,8 +1060,7 @@ public abstract class HBaseServer implements RpcServer {
           Writable value = null;
 
           CurCall.set(call);
-          UserGroupInformation previous = UserGroupInformation.getCurrentUGI();
-          UserGroupInformation.setCurrentUser(call.connection.ticket);
+          // TODO: simple auth -- store user in context
           try {
             value = call(call.connection.protocol, call.param, call.timestamp);             // make the call
           } catch (Throwable e) {
@@ -1049,7 +1068,6 @@ public abstract class HBaseServer implements RpcServer {
             errorClass = e.getClass().getName();
             error = StringUtils.stringifyException(e);
           }
-          UserGroupInformation.setCurrentUser(previous);
           CurCall.set(null);
 
           if (buf.size() > buffersize) {
@@ -1139,6 +1157,8 @@ public abstract class HBaseServer implements RpcServer {
     this.handlerCount = handlerCount;
     this.priorityHandlerCount = priorityHandlerCount;
     this.socketSendBufferSize = 0;
+    this.maxRespSize = conf.getInt(IPC_SERVER_RPC_MAX_RESPONSE_SIZE_KEY,
+                                   IPC_SERVER_RPC_MAX_RESPONSE_SIZE_DEFAULT);
     this.maxQueueSize = handlerCount * MAX_QUEUE_SIZE_PER_HANDLER;
      this.readThreads = conf.getInt(
         "ipc.server.read.threadpool.size",
@@ -1158,12 +1178,17 @@ public abstract class HBaseServer implements RpcServer {
     listener = new Listener();
     this.port = listener.getAddress().getPort();
     this.rpcMetrics = new HBaseRpcMetrics(serverName,
-                          Integer.toString(this.port));
+                          Integer.toString(this.port), this);
     this.tcpNoDelay = conf.getBoolean("ipc.server.tcpnodelay", false);
     this.tcpKeepAlive = conf.getBoolean("ipc.server.tcpkeepalive", true);
 
     // Create the responder here
     responder = new Responder();
+  }
+
+  protected Connection getConnection(SelectionKey readKey,
+      SocketChannel channel, long time) {
+    return new Connection(channel, time);
   }
 
   protected void closeConnection(Connection connection) {
@@ -1285,7 +1310,7 @@ public abstract class HBaseServer implements RpcServer {
   private static int NIO_BUFFER_LIMIT = 8*1024; //should not be more than 64KB.
 
   /**
-   * This is a wrapper around {@link WritableByteChannel#write(ByteBuffer)}.
+   * This is a wrapper around {@link java.nio.channels.WritableByteChannel#write(java.nio.ByteBuffer)}.
    * If the amount of data is large, it writes to channel in smaller chunks.
    * This is to avoid jdk from creating many direct buffers as the size of
    * buffer increases. This also minimizes extra copies in NIO layer
@@ -1296,16 +1321,21 @@ public abstract class HBaseServer implements RpcServer {
    * @param buffer buffer to write
    * @return number of bytes written
    * @throws java.io.IOException e
-   * @see WritableByteChannel#write(ByteBuffer)
+   * @see java.nio.channels.WritableByteChannel#write(java.nio.ByteBuffer)
    */
-  protected static int channelWrite(WritableByteChannel channel,
+  protected int channelWrite(WritableByteChannel channel,
                                     ByteBuffer buffer) throws IOException {
-    return (buffer.remaining() <= NIO_BUFFER_LIMIT) ?
+
+    int count =  (buffer.remaining() <= NIO_BUFFER_LIMIT) ?
            channel.write(buffer) : channelIO(null, channel, buffer);
+    if (count > 0) {
+      rpcMetrics.sentBytes.inc(count);
+  }
+    return count;
   }
 
   /**
-   * This is a wrapper around {@link ReadableByteChannel#read(ByteBuffer)}.
+   * This is a wrapper around {@link java.nio.channels.ReadableByteChannel#read(java.nio.ByteBuffer)}.
    * If the amount of data is large, it writes to channel in smaller chunks.
    * This is to avoid jdk from creating many direct buffers as the size of
    * ByteBuffer increases. There should not be any performance degredation.
@@ -1314,17 +1344,22 @@ public abstract class HBaseServer implements RpcServer {
    * @param buffer buffer to write
    * @return number of bytes written
    * @throws java.io.IOException e
-   * @see ReadableByteChannel#read(ByteBuffer)
+   * @see java.nio.channels.ReadableByteChannel#read(java.nio.ByteBuffer)
    */
-  protected static int channelRead(ReadableByteChannel channel,
+  protected int channelRead(ReadableByteChannel channel,
                                    ByteBuffer buffer) throws IOException {
-    return (buffer.remaining() <= NIO_BUFFER_LIMIT) ?
+
+    int count = (buffer.remaining() <= NIO_BUFFER_LIMIT) ?
            channel.read(buffer) : channelIO(channel, null, buffer);
+    if (count > 0) {
+      rpcMetrics.receivedBytes.inc(count);
+  }
+    return count;
   }
 
   /**
-   * Helper for {@link #channelRead(ReadableByteChannel, ByteBuffer)}
-   * and {@link #channelWrite(WritableByteChannel, ByteBuffer)}. Only
+   * Helper for {@link #channelRead(java.nio.channels.ReadableByteChannel, java.nio.ByteBuffer)}
+   * and {@link #channelWrite(java.nio.channels.WritableByteChannel, java.nio.ByteBuffer)}. Only
    * one of readCh or writeCh should be non-null.
    *
    * @param readCh read channel
@@ -1332,8 +1367,8 @@ public abstract class HBaseServer implements RpcServer {
    * @param buf buffer to read or write into/out of
    * @return bytes written
    * @throws java.io.IOException e
-   * @see #channelRead(ReadableByteChannel, ByteBuffer)
-   * @see #channelWrite(WritableByteChannel, ByteBuffer)
+   * @see #channelRead(java.nio.channels.ReadableByteChannel, java.nio.ByteBuffer)
+   * @see #channelWrite(java.nio.channels.WritableByteChannel, java.nio.ByteBuffer)
    */
   private static int channelIO(ReadableByteChannel readCh,
                                WritableByteChannel writeCh,

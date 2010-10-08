@@ -23,6 +23,7 @@ import org.apache.hadoop.hbase.HMsg;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HServerInfo;
 import org.apache.hadoop.io.MapWritable;
+import org.apache.hadoop.security.KerberosInfo;
 
 import java.io.IOException;
 
@@ -35,6 +36,9 @@ import java.io.IOException;
  * number in HBaseRPCProtocolVersion
  *
  */
+@KerberosInfo(
+    serverPrincipal = "hbase.master.kerberos.principal",
+    clientPrincipal = "hbase.regionserver.kerberos.principal")
 public interface HMasterRegionInterface extends HBaseRPCProtocolVersion {
 
   /**

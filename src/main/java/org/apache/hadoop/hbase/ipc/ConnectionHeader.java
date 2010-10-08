@@ -26,6 +26,7 @@ import java.io.IOException;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.hadoop.hbase.security.HBaseSaslRpcServer.AuthMethod;
 
 /**
  * The IPC connection header sent by the client to the server
@@ -34,6 +35,7 @@ import org.apache.hadoop.security.UserGroupInformation;
 class ConnectionHeader implements Writable {
   private String protocol;
   private UserGroupInformation ugi = null;
+  private AuthMethod authMethod;
 
   public ConnectionHeader() {}
 
@@ -45,9 +47,10 @@ class ConnectionHeader implements Writable {
    * @param ugi {@link UserGroupInformation} of the client communicating with
    *            the server
    */
-  public ConnectionHeader(String protocol, UserGroupInformation ugi) {
+  public ConnectionHeader(String protocol, UserGroupInformation ugi, AuthMethod authMethod) {
     this.protocol = protocol;
     this.ugi = ugi;
+    this.authMethod = authMethod;
   }
 
   @Override
@@ -60,7 +63,15 @@ class ConnectionHeader implements Writable {
     boolean ugiUsernamePresent = in.readBoolean();
     if (ugiUsernamePresent) {
       String username = in.readUTF();
-      ugi.readFields(in);
+      boolean realUserNamePresent = in.readBoolean();
+      if (realUserNamePresent) {
+        String realUserName = in.readUTF();
+        UserGroupInformation realUserUgi =
+            UserGroupInformation.createRemoteUser(realUserName);
+        ugi = UserGroupInformation.createProxyUser(username, realUserUgi);
+      } else {
+        ugi = UserGroupInformation.createRemoteUser(username);
+      }
     } else {
       ugi = null;
     }
@@ -70,9 +81,25 @@ class ConnectionHeader implements Writable {
   public void write(DataOutput out) throws IOException {
     Text.writeString(out, (protocol == null) ? "" : protocol);
     if (ugi != null) {
-      //Send both effective user and real user for simple auth
-      out.writeBoolean(true);
-      out.writeUTF(ugi.getUserName());
+      if (authMethod == AuthMethod.KERBEROS) {
+        // Send effective user for Kerberos auth
+        out.writeBoolean(true);
+        out.writeUTF(ugi.getUserName());
+        out.writeBoolean(false);
+      } else if (authMethod == AuthMethod.DIGEST) {
+        // Don't send user for token auth
+        out.writeBoolean(false);
+      } else {
+        //Send both effective user and real user for simple auth
+        out.writeBoolean(true);
+        out.writeUTF(ugi.getUserName());
+        if (ugi.getRealUser() != null) {
+          out.writeBoolean(true);
+          out.writeUTF(ugi.getRealUser().getUserName());
+        } else {
+          out.writeBoolean(false);
+        }
+      }
     } else {
       out.writeBoolean(false);
     }

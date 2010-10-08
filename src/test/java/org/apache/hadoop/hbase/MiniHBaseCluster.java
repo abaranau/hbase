@@ -20,6 +20,8 @@
 package org.apache.hadoop.hbase;
 
 import java.io.IOException;
+import java.security.PrivilegedAction;
+import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -38,7 +40,6 @@ import org.apache.hadoop.hbase.util.JVMClusterUtil;
 import org.apache.hadoop.hbase.util.Threads;
 import org.apache.hadoop.hdfs.DistributedFileSystem;
 import org.apache.hadoop.io.MapWritable;
-import org.apache.hadoop.security.UnixUserGroupInformation;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.zookeeper.KeeperException;
 
@@ -52,12 +53,6 @@ public class MiniHBaseCluster {
   static final Log LOG = LogFactory.getLog(MiniHBaseCluster.class.getName());
   private Configuration conf;
   public LocalHBaseCluster hbaseCluster;
-  // Cache this.  For some reason only works first time I get it.  TODO: Figure
-  // out why.
-  private final static UserGroupInformation UGI;
-  static {
-    UGI = UserGroupInformation.getCurrentUGI();
-  }
 
   /**
    * Start a MiniHBaseCluster.
@@ -66,7 +61,7 @@ public class MiniHBaseCluster {
    * @throws IOException
    */
   public MiniHBaseCluster(Configuration conf, int numRegionServers)
-  throws IOException {
+  throws IOException, InterruptedException {
     this(conf, 1, numRegionServers);
   }
 
@@ -79,7 +74,7 @@ public class MiniHBaseCluster {
    */
   public MiniHBaseCluster(Configuration conf, int numMasters,
       int numRegionServers)
-  throws IOException {
+  throws IOException, InterruptedException {
     this.conf = conf;
     conf.set(HConstants.MASTER_PORT, "0");
     init(numMasters, numRegionServers);
@@ -161,12 +156,13 @@ public class MiniHBaseCluster {
    * the FileSystem system exit hook does.
    */
   public static class MiniHBaseClusterRegionServer extends HRegionServer {
-    private static int index = 0;
     private Thread shutdownThread = null;
+    private UserGroupInformation user = null;
 
     public MiniHBaseClusterRegionServer(Configuration conf)
         throws IOException, InterruptedException {
-      super(setDifferentUser(conf));
+      super(conf);
+      this.user = UserGroupInformation.getCurrentUser();
     }
 
     public void setHServerInfo(final HServerInfo hsi) {
@@ -180,19 +176,6 @@ public class MiniHBaseCluster {
      * @return A new fs instance if we are up on DistributeFileSystem.
      * @throws IOException
      */
-    private static Configuration setDifferentUser(final Configuration c)
-    throws IOException {
-      FileSystem currentfs = FileSystem.get(c);
-      if (!(currentfs instanceof DistributedFileSystem)) return c;
-      // Else distributed filesystem.  Make a new instance per daemon.  Below
-      // code is taken from the AppendTestUtil over in hdfs.
-      Configuration c2 = new Configuration(c);
-      String username = UGI.getUserName() + ".hrs." + index++;
-      UnixUserGroupInformation.saveToConf(c2,
-        UnixUserGroupInformation.UGI_PROPERTY_NAME,
-        new UnixUserGroupInformation(username, new String[]{"supergroup"}));
-      return c2;
-    }
 
     @Override
     protected void handleReportForDutyResponse(MapWritable c) throws IOException {
@@ -204,7 +187,12 @@ public class MiniHBaseCluster {
     @Override
     public void run() {
       try {
-        super.run();
+        this.user.doAs(new PrivilegedAction<Object>(){
+          public Object run() {
+            runRegionServer();
+            return null;
+          }
+        });
       } catch (Throwable t) {
         LOG.error("Exception in run", t);
       } finally {
@@ -216,9 +204,26 @@ public class MiniHBaseCluster {
       }
     }
 
+    private void runRegionServer() {
+      super.run();
+    }
+
     @Override
     public void kill() {
       super.kill();
+    }
+
+    public void abort(final String reason, final Throwable cause) {
+      this.user.doAs(new PrivilegedAction<Object>() {
+        public Object run() {
+          abortRegionServer(reason, cause);
+          return null;
+        }
+      });
+    }
+
+    private void abortRegionServer(String reason, Throwable cause) {
+      super.abort(reason, cause);
     }
   }
 
@@ -246,12 +251,26 @@ public class MiniHBaseCluster {
   }
 
   private void init(final int nMasterNodes, final int nRegionNodes)
-  throws IOException {
+  throws IOException, InterruptedException {
     try {
       // start up a LocalHBaseCluster
       hbaseCluster = new LocalHBaseCluster(conf, nMasterNodes, nRegionNodes,
           MiniHBaseCluster.MiniHBaseClusterMaster.class,
           MiniHBaseCluster.MiniHBaseClusterRegionServer.class);
+
+      // manually add the regionservers as other users
+      for (int i=0; i<nRegionNodes; i++) {
+        final int index = i;
+        UserGroupInformation user = HBaseTestingUtility.getDifferentUser(conf,
+            ".hfs."+i);
+        user.doAs(new PrivilegedExceptionAction<Object>() {
+          public Object run() throws Exception {
+            hbaseCluster.addRegionServer(index);
+            return null;
+          }
+        });
+      }
+
       hbaseCluster.startup();
     } catch(IOException e) {
       shutdown();
@@ -265,10 +284,24 @@ public class MiniHBaseCluster {
    * @throws IOException
    * @return New RegionServerThread
    */
-  public JVMClusterUtil.RegionServerThread startRegionServer() throws IOException {
-    JVMClusterUtil.RegionServerThread t = this.hbaseCluster.addRegionServer();
-    t.start();
-    t.waitForServerOnline();
+  public JVMClusterUtil.RegionServerThread startRegionServer()
+      throws IOException {
+    int nextIndex = this.hbaseCluster.getRegionServers().size();
+    UserGroupInformation rsUser =
+        HBaseTestingUtility.getDifferentUser(conf, ".hfs."+nextIndex);
+    JVMClusterUtil.RegionServerThread t =  null;
+    try {
+      t = rsUser.doAs(
+          new PrivilegedExceptionAction<JVMClusterUtil.RegionServerThread>() {
+            public JVMClusterUtil.RegionServerThread run() throws Exception {
+              return hbaseCluster.addRegionServer();
+            }
+      });
+      t.start();
+      t.waitForServerOnline();
+    } catch (InterruptedException ie) {
+      throw new IOException("Interrupted executing UserGroupInformation.doAs()", ie);
+    }
     return t;
   }
 

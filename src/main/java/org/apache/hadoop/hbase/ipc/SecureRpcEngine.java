@@ -20,43 +20,73 @@
 
 package org.apache.hadoop.hbase.ipc;
 
-import java.lang.reflect.Proxy;
-import java.lang.reflect.Method;
-import java.lang.reflect.Array;
-import java.lang.reflect.InvocationHandler;
-import java.lang.reflect.InvocationTargetException;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.conf.Configurable;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.client.RetriesExhaustedException;
+import org.apache.hadoop.hbase.io.HbaseObjectWritable;
+import org.apache.hadoop.hbase.security.HBaseSaslRpcServer;
+import org.apache.hadoop.io.Writable;
+import org.apache.hadoop.ipc.VersionedProtocol;
+import org.apache.hadoop.metrics.util.MetricsTimeVaryingRate;
+import org.apache.hadoop.net.NetUtils;
+import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.hadoop.security.authorize.ServiceAuthorizationManager;
+import org.apache.hadoop.security.token.SecretManager;
+import org.apache.hadoop.security.token.TokenIdentifier;
 
+import javax.net.SocketFactory;
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.lang.reflect.*;
 import java.net.ConnectException;
 import java.net.InetSocketAddress;
 import java.net.SocketTimeoutException;
-import java.io.*;
-import java.util.Map;
 import java.util.HashMap;
+import java.util.Map;
 
-import javax.net.SocketFactory;
-import javax.security.auth.Subject;
-import javax.security.auth.login.LoginException;
+/** A simple RPC mechanism.
+ *
+ * This is a local hbase copy of the hadoop RPC so we can do things like
+ * address HADOOP-414 for hbase-only and try other hbase-specific
+ * optimizations like using our own version of ObjectWritable.  Class has been
+ * renamed to avoid confusing it w/ hadoop versions.
+ * <p>
+ *
+ *
+ * A <i>protocol</i> is a Java interface.  All parameters and return types must
+ * be one of:
+ *
+ * <ul> <li>a primitive type, <code>boolean</code>, <code>byte</code>,
+ * <code>char</code>, <code>short</code>, <code>int</code>, <code>long</code>,
+ * <code>float</code>, <code>double</code>, or <code>void</code>; or</li>
+ *
+ * <li>a {@link String}; or</li>
+ *
+ * <li>a {@link org.apache.hadoop.io.Writable}; or</li>
+ *
+ * <li>an array of the above types</li> </ul>
+ *
+ * All methods in the protocol should throw only IOException.  No field data of
+ * the protocol instance is transmitted.
+ */
+public class SecureRpcEngine implements RpcEngine {
+  // Leave this out in the hadoop ipc package but keep class name.  Do this
+  // so that we dont' get the logging of this class's invocations by doing our
+  // blanket enabling DEBUG on the o.a.h.h. package.
+  protected static final Log LOG =
+    LogFactory.getLog("org.apache.hadoop.ipc.HbaseRPC");
 
-import org.apache.commons.logging.*;
-
-import org.apache.hadoop.hbase.io.HbaseObjectWritable;
-import org.apache.hadoop.io.*;
-import org.apache.hadoop.ipc.VersionedProtocol;
-import org.apache.hadoop.net.NetUtils;
-import org.apache.hadoop.security.UserGroupInformation;
-import org.apache.hadoop.security.authorize.AuthorizationException;
-import org.apache.hadoop.security.authorize.ServiceAuthorizationManager;
-import org.apache.hadoop.conf.*;
-import org.apache.hadoop.metrics.util.MetricsTimeVaryingRate;
-
-/** An RpcEngine implementation for Writable data. */
-class WritableRpcEngine implements RpcEngine {
-  private static final Log LOG = LogFactory.getLog(HBaseRPC.class);
+  private SecureRpcEngine() {
+    super();
+  }                                  // no public ctor
 
   /* Cache a client using its socket factory as the hash key */
   static private class ClientCache {
-    private Map<SocketFactory, HBaseClient> clients =
-      new HashMap<SocketFactory, HBaseClient>();
+    private Map<SocketFactory, SecureClient> clients =
+      new HashMap<SocketFactory, SecureClient>();
 
     protected ClientCache() {}
 
@@ -68,17 +98,17 @@ class WritableRpcEngine implements RpcEngine {
      * @param factory socket factory
      * @return an IPC client
      */
-    protected synchronized HBaseClient getClient(Configuration conf,
+    protected synchronized SecureClient getClient(Configuration conf,
         SocketFactory factory) {
       // Construct & cache client.  The configuration is only used for timeout,
       // and Clients have connection pools.  So we can either (a) lose some
       // connection pooling and leak sockets, or (b) use the same timeout for all
       // configurations.  Since the IPC is usually intended globally, not
       // per-job, we choose (a).
-      HBaseClient client = clients.get(factory);
+      SecureClient client = clients.get(factory);
       if (client == null) {
         // Make an hbase client instead of hadoop Client.
-        client = new HBaseClient(HbaseObjectWritable.class, conf, factory);
+        client = new SecureClient(HbaseObjectWritable.class, conf, factory);
         clients.put(factory, client);
       } else {
         client.incCount();
@@ -93,7 +123,7 @@ class WritableRpcEngine implements RpcEngine {
      * @param conf Configuration
      * @return an IPC client
      */
-    protected synchronized HBaseClient getClient(Configuration conf) {
+    protected synchronized SecureClient getClient(Configuration conf) {
       return getClient(conf, SocketFactory.getDefault());
     }
 
@@ -102,7 +132,7 @@ class WritableRpcEngine implements RpcEngine {
      * A RPC client is closed only when its reference count becomes zero.
      * @param client client to stop
      */
-    protected void stopClient(HBaseClient client) {
+    protected void stopClient(SecureClient client) {
       synchronized (this) {
         client.decCount();
         if (client.isZeroReference()) {
@@ -121,12 +151,12 @@ class WritableRpcEngine implements RpcEngine {
     private Class<? extends VersionedProtocol> protocol;
     private InetSocketAddress address;
     private UserGroupInformation ticket;
-    private HBaseClient client;
+    private SecureClient client;
     private boolean isClosed = false;
 
     public Invoker(Class<? extends VersionedProtocol> protocol,
-                   InetSocketAddress address, UserGroupInformation ticket,
-                   Configuration conf, SocketFactory factory) {
+        InetSocketAddress address, UserGroupInformation ticket,
+        Configuration conf, SocketFactory factory) {
       this.protocol = protocol;
       this.address = address;
       this.ticket = ticket;
@@ -140,7 +170,6 @@ class WritableRpcEngine implements RpcEngine {
       if (logDebug) {
         startTime = System.currentTimeMillis();
       }
-
       HbaseObjectWritable value = (HbaseObjectWritable)
         client.call(new Invocation(method, args), address,
                     protocol, ticket);
@@ -160,25 +189,36 @@ class WritableRpcEngine implements RpcEngine {
     }
   }
 
-  /** Construct a client-side proxy object that implements the named protocol,
-   * talking to a server at the named address. */
+  /**
+   * Construct a client-side proxy object that implements the named protocol,
+   * talking to a server at the named address.
+   *
+   * @param protocol interface
+   * @param clientVersion version we are expecting
+   * @param addr remote address
+   * @param ticket ticket
+   * @param conf configuration
+   * @param factory socket factory
+   * @return proxy
+   * @throws java.io.IOException e
+   */
   public VersionedProtocol getProxy(
       Class<? extends VersionedProtocol> protocol, long clientVersion,
       InetSocketAddress addr, UserGroupInformation ticket,
       Configuration conf, SocketFactory factory)
-    throws IOException {
-
-      VersionedProtocol proxy =
-          (VersionedProtocol) Proxy.newProxyInstance(
-              protocol.getClassLoader(), new Class[] { protocol },
-              new Invoker(protocol, addr, ticket, conf, factory));
-    if (proxy instanceof VersionedProtocol) {
-      long serverVersion = ((VersionedProtocol)proxy)
-        .getProtocolVersion(protocol.getName(), clientVersion);
-      if (serverVersion != clientVersion) {
-        throw new HBaseRPC.VersionMismatch(protocol.getName(), clientVersion,
-                                      serverVersion);
-      }
+  throws IOException {
+    if (UserGroupInformation.isSecurityEnabled()) {
+      HBaseSaslRpcServer.init(conf);
+    }
+    VersionedProtocol proxy =
+        (VersionedProtocol) Proxy.newProxyInstance(
+            protocol.getClassLoader(), new Class[] { protocol },
+            new Invoker(protocol, addr, ticket, conf, factory));
+    long serverVersion = proxy.getProtocolVersion(protocol.getName(),
+                                                  clientVersion);
+    if (serverVersion != clientVersion) {
+      throw new HBaseRPC.VersionMismatch(protocol.getName(), clientVersion,
+                                serverVersion);
     }
     return proxy;
   }
@@ -204,41 +244,45 @@ class WritableRpcEngine implements RpcEngine {
     Invocation[] invocations = new Invocation[params.length];
     for (int i = 0; i < params.length; i++)
       invocations[i] = new Invocation(method, params[i]);
-    HBaseClient client = CLIENTS.getClient(conf);
+    SecureClient client = CLIENTS.getClient(conf);
     try {
-    Writable[] wrappedValues =
-      client.call(invocations, addrs, protocol, ticket);
+      Writable[] wrappedValues =
+        client.call(invocations, addrs, protocol, ticket);
 
-    if (method.getReturnType() == Void.TYPE) {
-      return null;
-    }
+      if (method.getReturnType() == Void.TYPE) {
+        return null;
+      }
 
-    Object[] values =
-      (Object[])Array.newInstance(method.getReturnType(), wrappedValues.length);
-    for (int i = 0; i < values.length; i++)
-      if (wrappedValues[i] != null)
-        values[i] = ((HbaseObjectWritable)wrappedValues[i]).get();
+      Object[] values =
+          (Object[])Array.newInstance(method.getReturnType(), wrappedValues.length);
+      for (int i = 0; i < values.length; i++)
+        if (wrappedValues[i] != null)
+          values[i] = ((HbaseObjectWritable)wrappedValues[i]).get();
 
-    return values;
+      return values;
     } finally {
       CLIENTS.stopClient(client);
     }
   }
 
   /** Construct a server for a protocol implementation instance listening on a
-   * port and address. */
+   * port and address, with a secret manager. */
   public Server getServer(Class<? extends VersionedProtocol> protocol,
-                          Object instance,
-                          Class<?>[] ifaces,
-                          String bindAddress, int port,
-                          int numHandlers,
-                          int metaHandlerCount, boolean verbose, Configuration conf, int highPriorityLevel)
+      final Object instance,
+      Class<?>[] ifaces,
+      final String bindAddress, final int port,
+      final int numHandlers,
+      int metaHandlerCount, final boolean verbose, Configuration conf,
+       int highPriorityLevel)
     throws IOException {
-    return new Server(instance, ifaces, conf, bindAddress, port, numHandlers, metaHandlerCount, verbose, highPriorityLevel);
+    return
+        new Server(instance, ifaces, conf, bindAddress, port,
+            numHandlers, metaHandlerCount, verbose,
+            highPriorityLevel);
   }
 
   /** An RPC Server. */
-  public static class Server extends HBaseServer {
+  public static class Server extends SecureServer {
     private Object instance;
     private Class<?> implementation;
     private Class<?>[] ifaces;
@@ -260,12 +304,15 @@ class WritableRpcEngine implements RpcEngine {
      * @param port the port to listen for connections on
      * @param numHandlers the number of method handler threads to run
      * @param verbose whether each call should be logged
-     * @throws IOException e
+     * @throws java.io.IOException e
      */
     public Server(Object instance, final Class<?>[] ifaces,
                   Configuration conf, String bindAddress,  int port,
-                  int numHandlers, int metaHandlerCount, boolean verbose, int highPriorityLevel) throws IOException {
-      super(bindAddress, port, Invocation.class, numHandlers, metaHandlerCount, conf, classNameBase(instance.getClass().getName()), highPriorityLevel);
+                  int numHandlers, int metaHandlerCount, boolean verbose,
+                  int highPriorityLevel)
+        throws IOException {
+      super(bindAddress, port, Invocation.class, numHandlers, metaHandlerCount, conf,
+          classNameBase(instance.getClass().getName()), highPriorityLevel);
       this.instance = instance;
       this.implementation = instance.getClass();
       this.verbose = verbose;
@@ -275,6 +322,7 @@ class WritableRpcEngine implements RpcEngine {
       // create metrics for the advertised interfaces this server implements.
       this.rpcMetrics.createMetrics(this.ifaces);
 
+      // TODO: is this needed?
       this.authorize =
         conf.getBoolean(ServiceAuthorizationManager.SERVICE_AUTHORIZATION_CONFIG,
                         false);
@@ -291,7 +339,6 @@ class WritableRpcEngine implements RpcEngine {
               "cause is a version mismatch between client and server.");
         }
         if (verbose) log("Call: " + call);
-
         Method method =
           protocol.getMethod(call.getMethodName(),
                                    call.getParameterClasses());
@@ -311,8 +358,8 @@ class WritableRpcEngine implements RpcEngine {
         int qTime = (int) (startTime-receivedTime);
         if (LOG.isDebugEnabled()) {
           LOG.debug("Served: " + call.getMethodName() +
-                    " queueTime= " + qTime +
-                    " procesingTime= " + processingTime);
+            " queueTime= " + qTime +
+            " procesingTime= " + processingTime);
         }
         rpcMetrics.rpcQueueTime.inc(qTime);
         rpcMetrics.rpcProcessingTime.inc(processingTime);

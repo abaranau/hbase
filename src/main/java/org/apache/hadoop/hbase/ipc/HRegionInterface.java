@@ -42,6 +42,7 @@ import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
 import org.apache.hadoop.ipc.RemoteException;
+import org.apache.hadoop.security.KerberosInfo;
 
 /**
  * Clients interact with HRegionServers using a handle to the HRegionInterface.
@@ -49,6 +50,8 @@ import org.apache.hadoop.ipc.RemoteException;
  * <p>NOTE: if you change the interface, you must change the RPC version
  * number in HBaseRPCProtocolVersion
  */
+@KerberosInfo(
+    serverPrincipal = "hbase.regionserver.kerberos.principal")
 public interface HRegionInterface extends HBaseRPCProtocolVersion, Stoppable, Abortable {
   /**
    * Get metainfo about an HRegion
