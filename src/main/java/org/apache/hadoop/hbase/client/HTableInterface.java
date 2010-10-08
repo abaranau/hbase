@@ -22,6 +22,7 @@ package org.apache.hadoop.hbase.client;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.KeyValue;
+import org.apache.hadoop.hbase.client.coprocessor.Batch;
 import org.apache.hadoop.hbase.ipc.CoprocessorProtocol;
 
 import java.io.IOException;
@@ -350,10 +351,10 @@ public interface HTableInterface {
    * @param row The row key used to identify the remote region location
    * @return
    */
-  <T extends CoprocessorProtocol> T proxy(Class<T> protocol, byte[] row);
+  <T extends CoprocessorProtocol> T coprocessorProxy(Class<T> protocol, byte[] row);
 
   /**
-   * Invoke the passed {@link org.apache.hadoop.hbase.client.Batch.Call} against
+   * Invoke the passed {@link org.apache.hadoop.hbase.client.coprocessor.Batch.Call} against
    * the {@link CoprocessorProtocol} instances running in the selected regions.
    * All regions beginning with the region containing the <code>startKey</code>
    * row, through to the region containing the <code>endKey</code> row (inclusive)
@@ -366,15 +367,15 @@ public interface HTableInterface {
    * @param endKey select regions up to and including the region containing this row
    * @param callable wraps the CoprocessorProtocol implementation method calls made per-region
    * @param <T> CoprocessorProtocol subclass for the remote invocation
-   * @param <R> Return type for the {@link org.apache.hadoop.hbase.client.Batch.Call#call(Object)} method
+   * @param <R> Return type for the {@link org.apache.hadoop.hbase.client.coprocessor.Batch.Call#call(Object)} method
    * @return a <code>Map</code> of region names to {@link Batch.Call#call(Object)} return values
    */
-  <T extends CoprocessorProtocol, R> Map<byte[],R> exec(
+  <T extends CoprocessorProtocol, R> Map<byte[],R> coprocessorExec(
       Class<T> protocol, byte[] startKey, byte[] endKey, Batch.Call<T,R> callable)
       throws IOException, Throwable;
 
   /**
-   * Invoke the passed {@link org.apache.hadoop.hbase.client.Batch.Call} against
+   * Invoke the passed {@link org.apache.hadoop.hbase.client.coprocessor.Batch.Call} against
    * the {@link CoprocessorProtocol} instances running in the selected regions.
    * All regions beginning with the region containing the <code>startKey</code>
    * row, through to the region containing the <code>endKey</code> row (inclusive)
@@ -391,11 +392,11 @@ public interface HTableInterface {
    * @param startKey start region selection with region containing this row
    * @param endKey select regions up to and including the region containing this row
    * @param callable wraps the CoprocessorProtocol implementation method calls made per-region
-   * @param callback an instance upon which {@link Batch.Callback#update(byte[], byte[], Object)} with the {@link Batch.Call#call(Object)} return value for each region
+   * @param callback an instance upon which {@link Batch.Callback#update(byte[], byte[], Object)} with the {@link org.apache.hadoop.hbase.client.coprocessor.Batch.Call#call(Object)} return value for each region
    * @param <T> CoprocessorProtocol subclass for the remote invocation
-   * @param <R> Return type for the {@link org.apache.hadoop.hbase.client.Batch.Call#call(Object)} method
+   * @param <R> Return type for the {@link org.apache.hadoop.hbase.client.coprocessor.Batch.Call#call(Object)} method
    */
-  <T extends CoprocessorProtocol, R> void exec(
+  <T extends CoprocessorProtocol, R> void coprocessorExec(
       Class<T> protocol, byte[] startKey, byte[] endKey,
       Batch.Call<T,R> callable, Batch.Callback<R> callback)
       throws IOException, Throwable;

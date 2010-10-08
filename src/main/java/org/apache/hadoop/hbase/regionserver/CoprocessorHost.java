@@ -1,9 +1,13 @@
 /*
  * Copyright 2010 The Apache Software Foundation
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
@@ -26,8 +30,8 @@ import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.client.*;
-import org.apache.hadoop.hbase.client.Batch.Call;
-import org.apache.hadoop.hbase.client.Batch.Callback;
+import org.apache.hadoop.hbase.client.coprocessor.Batch.Call;
+import org.apache.hadoop.hbase.client.coprocessor.Batch.Callback;
 import org.apache.hadoop.hbase.coprocessor.BaseCommandTarget;
 import org.apache.hadoop.hbase.coprocessor.Coprocessor;
 import org.apache.hadoop.hbase.coprocessor.RegionObserver;
@@ -220,23 +224,23 @@ public class CoprocessorHost {
       }
 
       @Override
-      public <T extends CoprocessorProtocol, R> void exec(Class<T> protocol,
+      public <T extends CoprocessorProtocol, R> void coprocessorExec(Class<T> protocol,
           byte[] startKey, byte[] endKey, Call<T, R> callable,
           Callback<R> callback) throws IOException, Throwable {
-        table.exec(protocol, startKey, endKey, callable, callback);
+        table.coprocessorExec(protocol, startKey, endKey, callable, callback);
       }
 
       @Override
-      public <T extends CoprocessorProtocol, R> Map<byte[], R> exec(
+      public <T extends CoprocessorProtocol, R> Map<byte[], R> coprocessorExec(
           Class<T> protocol, byte[] startKey, byte[] endKey, Call<T, R> callable)
           throws IOException, Throwable {
-        return table.exec(protocol, startKey, endKey, callable);
+        return table.coprocessorExec(protocol, startKey, endKey, callable);
       }
 
       @Override
-      public <T extends CoprocessorProtocol> T proxy(Class<T> protocol,
+      public <T extends CoprocessorProtocol> T coprocessorProxy(Class<T> protocol,
           byte[] row) {
-        return table.proxy(protocol, row);
+        return table.coprocessorProxy(protocol, row);
       }
     }
 

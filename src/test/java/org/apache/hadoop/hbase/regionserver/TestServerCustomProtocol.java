@@ -22,6 +22,7 @@ package org.apache.hadoop.hbase.regionserver;
 import com.google.common.collect.Lists;
 import org.apache.hadoop.hbase.*;
 import org.apache.hadoop.hbase.client.*;
+import org.apache.hadoop.hbase.client.coprocessor.Batch;
 import org.apache.hadoop.hbase.ipc.CoprocessorProtocol;
 import org.apache.hadoop.hbase.ipc.HBaseRPCProtocolVersion;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -127,7 +128,7 @@ public class TestServerCustomProtocol {
   public void testSingleProxy() throws Exception {
     HTable table = new HTable(util.getConfiguration(), TEST_TABLE);
 
-    PingProtocol pinger = table.proxy(PingProtocol.class, ROW_A);
+    PingProtocol pinger = table.coprocessorProxy(PingProtocol.class, ROW_A);
     String result = pinger.ping();
     assertEquals("Invalid custom protocol response", "pong", result);
     result = pinger.hello("George");
@@ -145,18 +146,18 @@ public class TestServerCustomProtocol {
     List<? extends Row> rows = Lists.newArrayList(
         new Get(ROW_A), new Get(ROW_B), new Get(ROW_C));
 
-    Batch.Call<PingProtocol,String> call =  Batch.returning(PingProtocol.class, "ping");
+    Batch.Call<PingProtocol,String> call =  Batch.forMethod(PingProtocol.class, "ping");
     Map<byte[],String> results =
-        table.exec(PingProtocol.class, ROW_A, ROW_C, call);
+        table.coprocessorExec(PingProtocol.class, ROW_A, ROW_C, call);
 
 
     verifyRegionResults(table, results, ROW_A);
     verifyRegionResults(table, results, ROW_B);
     verifyRegionResults(table, results, ROW_C);
 
-    Batch.Call<PingProtocol,String> helloCall =  Batch.returning(PingProtocol.class, "hello", "NAME");
+    Batch.Call<PingProtocol,String> helloCall =  Batch.forMethod(PingProtocol.class, "hello", "NAME");
     results =
-        table.exec(PingProtocol.class, ROW_A, ROW_C, helloCall);
+        table.coprocessorExec(PingProtocol.class, ROW_A, ROW_C, helloCall);
 
 
     verifyRegionResults(table, results, "Hello, NAME", ROW_A);
@@ -169,7 +170,7 @@ public class TestServerCustomProtocol {
     HTable table = new HTable(util.getConfiguration(), TEST_TABLE);
 
     // test empty range
-    Map<byte[],String> results = table.exec(PingProtocol.class, null, null,
+    Map<byte[],String> results = table.coprocessorExec(PingProtocol.class, null, null,
         new Batch.Call<PingProtocol,String>() {
           public String call(PingProtocol instance) {
             return instance.ping();
@@ -181,7 +182,7 @@ public class TestServerCustomProtocol {
     verifyRegionResults(table, results, ROW_C);
 
     // test start row + empty end
-    results = table.exec(PingProtocol.class, ROW_BC, null,
+    results = table.coprocessorExec(PingProtocol.class, ROW_BC, null,
         new Batch.Call<PingProtocol,String>() {
           public String call(PingProtocol instance) {
             return instance.ping();
@@ -195,7 +196,7 @@ public class TestServerCustomProtocol {
     verifyRegionResults(table, results, ROW_C);
 
     // test empty start + end
-    results = table.exec(PingProtocol.class, null, ROW_BC,
+    results = table.coprocessorExec(PingProtocol.class, null, ROW_BC,
         new Batch.Call<PingProtocol,String>() {
           public String call(PingProtocol instance) {
             return instance.ping();
@@ -209,7 +210,7 @@ public class TestServerCustomProtocol {
         results.get(loc.getRegionInfo().getRegionName()));
 
     // test explicit start + end
-    results = table.exec(PingProtocol.class, ROW_AB, ROW_BC,
+    results = table.coprocessorExec(PingProtocol.class, ROW_AB, ROW_BC,
         new Batch.Call<PingProtocol,String>() {
           public String call(PingProtocol instance) {
             return instance.ping();
@@ -223,7 +224,7 @@ public class TestServerCustomProtocol {
         results.get(loc.getRegionInfo().getRegionName()));
 
     // test single region
-    results = table.exec(PingProtocol.class, ROW_B, ROW_BC,
+    results = table.coprocessorExec(PingProtocol.class, ROW_B, ROW_BC,
         new Batch.Call<PingProtocol,String>() {
           public String call(PingProtocol instance) {
             return instance.ping();
@@ -243,7 +244,7 @@ public class TestServerCustomProtocol {
   public void testCompountCall() throws Throwable {
     HTable table = new HTable(util.getConfiguration(), TEST_TABLE);
 
-    Map<byte[],String> results = table.exec(PingProtocol.class, ROW_A, ROW_C,
+    Map<byte[],String> results = table.coprocessorExec(PingProtocol.class, ROW_A, ROW_C,
         new Batch.Call<PingProtocol,String>() {
           public String call(PingProtocol instance) {
             return instance.hello(instance.ping());

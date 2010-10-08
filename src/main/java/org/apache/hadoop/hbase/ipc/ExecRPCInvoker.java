@@ -23,9 +23,10 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.client.*;
+import org.apache.hadoop.hbase.client.coprocessor.Exec;
+import org.apache.hadoop.hbase.client.coprocessor.ExecResult;
 import org.apache.hadoop.hbase.util.Bytes;
 
-import java.io.IOException;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 
@@ -69,7 +70,7 @@ public class ExecRPCInvoker implements InvocationHandler {
       ServerCallable<ExecResult> callable =
           new ServerCallable<ExecResult>(connection, table, row) {
             public ExecResult call() throws Exception {
-              return server.exec(location.getRegionInfo().getRegionName(),
+              return server.execCoprocessor(location.getRegionInfo().getRegionName(),
                   exec);
             }
           };

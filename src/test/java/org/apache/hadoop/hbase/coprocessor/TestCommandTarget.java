@@ -21,6 +21,7 @@ package org.apache.hadoop.hbase.coprocessor;
 
 import org.apache.hadoop.hbase.*;
 import org.apache.hadoop.hbase.client.*;
+import org.apache.hadoop.hbase.client.coprocessor.*;
 import org.apache.hadoop.hbase.regionserver.InternalScanner;
 import org.apache.hadoop.hbase.ipc.CoprocessorProtocol;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -137,7 +138,7 @@ public class TestCommandTarget {
     Map<byte[], Integer> results;
 
     // scan: for all regions
-    results = table.exec(ColumnAggregationProtocol.class,
+    results = table.coprocessorExec(ColumnAggregationProtocol.class,
         ROWS[rowSeperator1 - 1],
         ROWS[rowSeperator2 + 1],
         new Batch.Call<ColumnAggregationProtocol,Integer>() {
@@ -158,7 +159,7 @@ public class TestCommandTarget {
     results.clear();
 
     // scan: for region 2 and region 3
-    results = table.exec(ColumnAggregationProtocol.class,
+    results = table.coprocessorExec(ColumnAggregationProtocol.class,
         ROWS[rowSeperator1 + 1],
         ROWS[rowSeperator2 + 1],
         new Batch.Call<ColumnAggregationProtocol,Integer>() {
