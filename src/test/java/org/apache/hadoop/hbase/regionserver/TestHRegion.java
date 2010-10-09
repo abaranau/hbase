@@ -19,8 +19,20 @@
  */
 package org.apache.hadoop.hbase.regionserver;
 
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HBaseTestCase;
@@ -50,26 +62,13 @@ import org.apache.hadoop.hbase.regionserver.HRegion.RegionScanner;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManagerTestHelper;
-import org.apache.hadoop.hbase.util.FSUtils;
 import org.apache.hadoop.hbase.util.IncrementingEnvironmentEdge;
 import org.apache.hadoop.hbase.util.ManualEnvironmentEdge;
 import org.apache.hadoop.hbase.util.Pair;
 import org.apache.hadoop.hbase.util.PairOfSameType;
 import org.apache.hadoop.hbase.util.Threads;
 
-import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
-
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.TreeMap;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 
 
 /**
@@ -117,7 +116,7 @@ public class TestHRegion extends HBaseTestCase {
   //////////////////////////////////////////////////////////////////////////////
 
   public void testGetWhileRegionClose() throws IOException {
-    HBaseConfiguration hc = initSplit();
+    Configuration hc = initSplit();
     int numRows = 100;
     byte [][] families = {fam1, fam2, fam3};
 
@@ -1194,7 +1193,7 @@ public class TestHRegion extends HBaseTestCase {
     byte [] tableName = Bytes.toBytes("testtable");
     byte [][] families = {fam1, fam2, fam3};
 
-    HBaseConfiguration hc = initSplit();
+    Configuration hc = initSplit();
     //Setting up region
     String method = this.getName();
     initHRegion(tableName, method, hc, families);
@@ -1257,7 +1256,7 @@ public class TestHRegion extends HBaseTestCase {
   public void testMerge() throws IOException {
     byte [] tableName = Bytes.toBytes("testtable");
     byte [][] families = {fam1, fam2, fam3};
-    HBaseConfiguration hc = initSplit();
+    Configuration hc = initSplit();
     //Setting up region
     String method = this.getName();
     initHRegion(tableName, method, hc, families);
@@ -2171,7 +2170,7 @@ public class TestHRegion extends HBaseTestCase {
     byte [] tableName = Bytes.toBytes("testtable");
     byte [][] families = {fam1, fam2, fam3};
 
-    HBaseConfiguration hc = initSplit();
+    Configuration hc = initSplit();
     //Setting up region
     String method = this.getName();
     initHRegion(tableName, method, hc, families);
@@ -2258,7 +2257,7 @@ public class TestHRegion extends HBaseTestCase {
   public void testSplitRegion() throws IOException {
     byte [] tableName = Bytes.toBytes("testtable");
     byte [] qualifier = Bytes.toBytes("qualifier");
-    HBaseConfiguration hc = initSplit();
+    Configuration hc = initSplit();
     int numRows = 10;
     byte [][] families = {fam1, fam3};
 
@@ -2663,7 +2662,7 @@ public class TestHRegion extends HBaseTestCase {
 
     //Setting up region
     String method = "testIndexesScanWithOneDeletedRow";
-    initHRegion(tableName, method, new HBaseConfiguration(), family);
+    initHRegion(tableName, method, HBaseConfiguration.create(), family);
 
     Put put = new Put(Bytes.toBytes(1L));
     put.add(family, qual1, 1L, Bytes.toBytes(1L));
@@ -2867,8 +2866,8 @@ public class TestHRegion extends HBaseTestCase {
     }
   }
 
-  private HBaseConfiguration initSplit() {
-    HBaseConfiguration conf = new HBaseConfiguration();
+  private Configuration initSplit() {
+    Configuration conf = HBaseConfiguration.create();
     // Always compact if there is more than one store file.
     conf.setInt("hbase.hstore.compactionThreshold", 2);
 
@@ -2889,11 +2888,11 @@ public class TestHRegion extends HBaseTestCase {
   private void initHRegion (byte [] tableName, String callingMethod,
     byte[] ... families)
   throws IOException {
-    initHRegion(tableName, callingMethod, new HBaseConfiguration(), families);
+    initHRegion(tableName, callingMethod, HBaseConfiguration.create(), families);
   }
 
   private void initHRegion (byte [] tableName, String callingMethod,
-    HBaseConfiguration conf, byte [] ... families)
+    Configuration conf, byte [] ... families)
   throws IOException{
     HTableDescriptor htd = new HTableDescriptor(tableName);
     for(byte [] family : families) {
