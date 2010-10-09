@@ -19,6 +19,7 @@
  */
 package org.apache.hadoop.hbase.catalog;
 
+import java.io.EOFException;
 import java.io.IOException;
 import java.net.ConnectException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -355,6 +356,17 @@ public class CatalogTracker {
       } else {
         throw e;
       }
+    } catch (IOException ioe) {
+      Throwable cause = ioe.getCause();
+      if (cause != null && cause instanceof EOFException) {
+        // Catch. Other end disconnected us.
+      } else if (cause != null && cause.getMessage() != null &&
+        cause.getMessage().toLowerCase().contains("connection reset")) {
+        // Catch. Connection reset.
+      } else {
+        throw ioe;
+      }
+      
     }
     return protocol;
   }
@@ -368,9 +380,6 @@ public class CatalogTracker {
     }
     Throwable t = null;
     try {
-      // Am expecting only two possible exceptions here; unable
-      // to connect to the regionserver or NotServingRegionException wrapped
-      // in the hadoop rpc RemoteException.
       return metaServer.getRegionInfo(regionName) != null;
     } catch (ConnectException e) {
       t = e;
@@ -378,6 +387,13 @@ public class CatalogTracker {
       IOException ioe = e.unwrapRemoteException();
       if (ioe instanceof NotServingRegionException) {
         t = ioe;
+      } else {
+        throw e;
+      }
+    } catch (IOException e) {
+      Throwable cause = e.getCause();
+      if (cause != null && cause instanceof EOFException) {
+        t = cause;
       } else {
         throw e;
       }
