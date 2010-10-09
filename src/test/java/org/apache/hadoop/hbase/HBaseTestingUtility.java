@@ -69,7 +69,6 @@ import org.apache.hadoop.hdfs.server.namenode.NameNode;
 import org.apache.hadoop.mapred.MiniMRCluster;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.zookeeper.ZooKeeper;
-import com.google.common.base.Preconditions;
 
 /**
  * Facility for testing HBase. Replacement for
@@ -350,11 +349,12 @@ public class HBaseTestingUtility {
    * @param numSlaves
    * @return Reference to the hbase mini hbase cluster.
    * @throws IOException
+   * @throws InterruptedException 
    * @see {@link #startMiniCluster()}
    */
   public MiniHBaseCluster startMiniHBaseCluster(final int numMasters,
       final int numSlaves)
-  throws IOException {
+  throws IOException, InterruptedException {
     // Now do the mini hbase cluster.  Set the hbase.rootdir in config.
     createRootDir();
     Configuration c = new Configuration(this.conf);
