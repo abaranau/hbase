@@ -35,7 +35,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hbase.Abortable;
 import org.apache.hadoop.hbase.DoNotRetryIOException;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.HRegionInfo;
@@ -134,6 +133,14 @@ public class HConnectionManager {
   }
 
   /**
+   * Delete connection information for the instance
+   * @param connection configuration
+   */
+  public static void deleteConnection(HConnection connection) {
+    deleteConnection(connection.getConfiguration(), false);
+  }
+
+  /**
    * Delete information for all connections.
    * @param stopProxy stop the proxy as well
    * @throws IOException
@@ -174,7 +181,7 @@ public class HConnectionManager {
   }
 
   /* Encapsulates connection to zookeeper and regionservers.*/
-  static class HConnectionImplementation implements HConnection, Abortable {
+  static class HConnectionImplementation implements HConnection {
     static final Log LOG = LogFactory.getLog(HConnectionImplementation.class);
     private final Class<? extends HRegionInterface> serverInterfaceClass;
     private final long pause;
@@ -202,7 +209,6 @@ public class HConnectionManager {
       new ConcurrentHashMap<String, HRegionInterface>();
 
     private final RootRegionTracker rootRegionTracker;
-    private final String identifier;
 
     /**
      * Map of table to table {@link HRegionLocation}s.  The table key is made
@@ -225,17 +231,12 @@ public class HConnectionManager {
     public HConnectionImplementation(Configuration conf)
     throws ZooKeeperConnectionException {
       this.conf = conf;
-
-      String serverClassName =
-        conf.get(HConstants.REGION_SERVER_CLASS,
-            HConstants.DEFAULT_REGION_SERVER_CLASS);
-
+      String serverClassName = conf.get(HConstants.REGION_SERVER_CLASS,
+        HConstants.DEFAULT_REGION_SERVER_CLASS);
       this.closed = false;
-
       try {
         this.serverInterfaceClass =
           (Class<? extends HRegionInterface>) Class.forName(serverClassName);
-
       } catch (ClassNotFoundException e) {
         throw new UnsupportedOperationException(
             "Unable to find region server interface " + serverClassName, e);
@@ -253,7 +254,6 @@ public class HConnectionManager {
 
       // initialize zookeeper and master address manager
       this.zooKeeper = getZooKeeperWatcher();
-      this.identifier = this.zooKeeper.toString();
       masterAddressTracker = new MasterAddressTracker(this.zooKeeper, this);
       zooKeeper.registerListener(masterAddressTracker);
       masterAddressTracker.start();
@@ -265,9 +265,8 @@ public class HConnectionManager {
       this.masterChecked = false;
     }
 
-    @Override
-    public String toString() {
-      return this.identifier;
+    public Configuration getConfiguration() {
+      return this.conf;
     }
 
     private long getPauseTime(int tries) {
