@@ -20,6 +20,7 @@
 package org.apache.hadoop.hbase;
 
 import java.io.IOException;
+import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -35,6 +36,7 @@ import org.apache.hadoop.hbase.util.JVMClusterUtil.RegionServerThread;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.apache.hadoop.hbase.master.HMaster;
 import org.apache.hadoop.hbase.util.JVMClusterUtil;
+import org.apache.hadoop.security.UserGroupInformation;
 
 /**
  * This class creates a single process HBase cluster. One thread is created for
@@ -148,6 +150,7 @@ public class LocalHBaseCluster {
     this.regionServerClass =
       (Class<? extends HRegionServer>)conf.getClass(HConstants.REGION_SERVER_IMPL,
        regionServerClass);
+
     for (int i = 0; i < noRegionServers; i++) {
       addRegionServer(i);
     }
@@ -169,6 +172,17 @@ public class LocalHBaseCluster {
     return rst;
   }
 
+  public JVMClusterUtil.RegionServerThread addRegionServer(
+      final int index, UserGroupInformation user)
+  throws IOException, InterruptedException {
+    return user.doAs(
+        new PrivilegedExceptionAction<JVMClusterUtil.RegionServerThread>() {
+          public JVMClusterUtil.RegionServerThread run() throws Exception {
+            return addRegionServer(index);
+          }
+        });
+  }
+
   public JVMClusterUtil.MasterThread addMaster() throws IOException {
     return addMaster(this.masterThreads.size());
   }
@@ -183,6 +197,17 @@ public class LocalHBaseCluster {
         this.masterClass, index);
     this.masterThreads.add(mt);
     return mt;
+  }
+
+  public JVMClusterUtil.MasterThread addMaster(
+      final int index, UserGroupInformation user)
+  throws IOException, InterruptedException {
+    return user.doAs(
+        new PrivilegedExceptionAction<JVMClusterUtil.MasterThread>() {
+          public JVMClusterUtil.MasterThread run() throws Exception {
+            return addMaster(index);
+          }
+        });
   }
 
   /**

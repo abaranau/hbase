@@ -254,7 +254,7 @@ public class MiniHBaseCluster {
   throws IOException, InterruptedException {
     try {
       // start up a LocalHBaseCluster
-      hbaseCluster = new LocalHBaseCluster(conf, nMasterNodes, nRegionNodes,
+      hbaseCluster = new LocalHBaseCluster(conf, nMasterNodes, 0,
           MiniHBaseCluster.MiniHBaseClusterMaster.class,
           MiniHBaseCluster.MiniHBaseClusterRegionServer.class);
 
@@ -263,12 +263,7 @@ public class MiniHBaseCluster {
         final int index = i;
         UserGroupInformation user = HBaseTestingUtility.getDifferentUser(conf,
             ".hfs."+i);
-        user.doAs(new PrivilegedExceptionAction<Object>() {
-          public Object run() throws Exception {
-            hbaseCluster.addRegionServer(index);
-            return null;
-          }
-        });
+        hbaseCluster.addRegionServer(index, user);
       }
 
       hbaseCluster.startup();
