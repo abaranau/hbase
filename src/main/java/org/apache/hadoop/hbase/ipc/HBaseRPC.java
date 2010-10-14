@@ -30,7 +30,6 @@ import org.apache.hadoop.ipc.VersionedProtocol;
 import org.apache.hadoop.net.NetUtils;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.util.ReflectionUtils;
-
 import javax.net.SocketFactory;
 import java.io.IOException;
 import java.lang.reflect.Method;
@@ -38,6 +37,7 @@ import java.lang.reflect.Proxy;
 import java.net.ConnectException;
 import java.net.InetSocketAddress;
 import java.net.SocketTimeoutException;
+import java.security.PrivilegedExceptionAction;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -257,7 +257,7 @@ public class HBaseRPC {
   public static VersionedProtocol getProxy(Class<? extends VersionedProtocol> protocol,
       long clientVersion, InetSocketAddress addr, Configuration conf,
       SocketFactory factory) throws IOException {
-    return getProxy(protocol, clientVersion, addr, null, conf, factory);
+    return getProxy(protocol, clientVersion, addr, UserGroupInformation.getCurrentUser(), conf, factory);
   }
 
   /**

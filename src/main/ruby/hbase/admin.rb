@@ -40,6 +40,7 @@ module Hbase
       zk = @zk_wrapper.getZooKeeper()
       @zk_main = ZooKeeperMain.new(zk)
       @formatter = formatter
+      @meta = HTable.new(HConstants::META_TABLE_NAME)
     end
 
     #----------------------------------------------------------------------------------------------
@@ -121,7 +122,8 @@ module Hbase
       # Fail if no column families defined
       raise(ArgumentError, "Table must have at least one column family") if args.empty?
 
-      # Start defining the table
+      # Start defining the table. Note that the owner will be set using UserGroupInformation.getCurrentUser()
+      # in the HTableDescriptor constructor.
       htd = HTableDescriptor.new(table_name)
 
       # All args are columns, add them to the table definition
@@ -192,6 +194,39 @@ module Hbase
     end
 
     #----------------------------------------------------------------------------------------------
+    # Add an rbac:info column with the value _rights_
+    # for the .META. row for the first region in the table _table_name_.
+    def grant(user,rights,table_name)
+      region_name = get_first_region(table_name)
+      put = Put.new(Bytes.toBytes(region_name))
+      put.add(HConstants::ACL_FAMILY,Bytes.toBytes(user),Bytes.toBytes(rights));
+      meta = HTable.new(HConstants::META_TABLE_NAME)
+      meta.put(put)
+    end
+
+    def get_first_region(table_name)
+      #return the name of the first region for the given table name.
+      #for example, given "foo", this will return something like:
+      # "foo,,1285018739013.639eb6f8570828eb2fcab130b7914c25."
+      region = nil
+      scan = Scan.new
+      scan.setStartRow(Bytes.toBytes(table_name+",,"))
+      scan.setCaching(1);
+      scanner = @meta.getScanner(scan)
+      iter = scanner.iterator
+      row = iter.next
+      row_string = row.to_s
+      kv = row.list[0]
+
+      #kv.to_s looks like e.g. : "foo,,1285018739013.639eb6f8570828eb2fcab130b7914c25."
+      parts = kv.to_s.split(/,/)
+      region = parts[0]+",,"+parts[2].split(/\//)[0]
+
+      scanner.close
+      return region
+    end
+
+    #----------------------------------------------------------------------------------------------
     # Change table structure or table options
     def alter(table_name, *args)
       # Table name should be a string
@@ -219,6 +254,16 @@ module Hbase
 
         # No method parameter, try to use the args as a column definition
         unless method = arg.delete(METHOD)
+          # Note that we handle owner here, and also below (see (2)) as part of the "METHOD => 'table_att'" table attributes.
+          # In other words, if OWNER is specified, then METHOD is set to table_att.
+          # (1) Here, we handle the following (as specified in http://boa02:8000/hbase/wiki/RBACDesign):
+          #   alter 'tablename', {OWNER => 'username'} (that is, METHOD => 'table_att' is not specified).
+          if arg[OWNER]
+            htd.setOwnerString(arg[OWNER])
+            @admin.modifyTable(table_name.to_java_bytes, htd)
+            return
+          end
+
           descriptor = hcd(arg)
           if arg[COMPRESSION_COMPACT]
             descriptor.setValue(COMPRESSION_COMPACT, arg[COMPRESSION_COMPACT])
@@ -229,7 +274,15 @@ module Hbase
           if htd.hasFamily(column_name.to_java_bytes)
             @admin.modifyColumn(table_name, column_name, descriptor)
           else
+            descriptor = hcd(arg)
+            column_name = descriptor.getNameAsString
+
+            # If column already exists, then try to alter it. Create otherwise.
+            if htd.hasFamily(column_name.to_java_bytes)
+              @admin.modifyColumn(table_name, column_name, descriptor)
+            else
             @admin.addColumn(table_name, descriptor)
+          end
           end
           next
         end
@@ -247,6 +300,8 @@ module Hbase
           htd.setReadOnly(JBoolean.valueOf(arg[READONLY])) if arg[READONLY]
           htd.setMemStoreFlushSize(JLong.valueOf(arg[MEMSTORE_FLUSHSIZE])) if arg[MEMSTORE_FLUSHSIZE]
           htd.setDeferredLogFlush(JBoolean.valueOf(arg[DEFERRED_LOG_FLUSH])) if arg[DEFERRED_LOG_FLUSH]
+          # (2) Here, we handle the alternate syntax of ownership setting, where method => 'table_att' is specified.
+          htd.setOwnerString(arg[OWNER]) if arg[OWNER]
           @admin.modifyTable(table_name.to_java_bytes, htd)
           next
         end

@@ -35,6 +35,7 @@ import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.hadoop.hbase.io.hfile.Compression;
 import org.apache.hadoop.hbase.regionserver.StoreFile;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.io.WritableComparable;
 
 /**
@@ -59,20 +60,28 @@ public class HTableDescriptor implements WritableComparable<HTableDescriptor> {
   public static final String FAMILIES = "FAMILIES";
   public static final ImmutableBytesWritable FAMILIES_KEY =
     new ImmutableBytesWritable(Bytes.toBytes(FAMILIES));
+
   public static final String MAX_FILESIZE = "MAX_FILESIZE";
   public static final ImmutableBytesWritable MAX_FILESIZE_KEY =
     new ImmutableBytesWritable(Bytes.toBytes(MAX_FILESIZE));
+
+  public static final String OWNER = "OWNER";
+  public static final ImmutableBytesWritable OWNER_KEY =
+    new ImmutableBytesWritable(Bytes.toBytes(OWNER));
+
   public static final String READONLY = "READONLY";
   public static final ImmutableBytesWritable READONLY_KEY =
     new ImmutableBytesWritable(Bytes.toBytes(READONLY));
+
   public static final String MEMSTORE_FLUSHSIZE = "MEMSTORE_FLUSHSIZE";
   public static final ImmutableBytesWritable MEMSTORE_FLUSHSIZE_KEY =
     new ImmutableBytesWritable(Bytes.toBytes(MEMSTORE_FLUSHSIZE));
+
   public static final String IS_ROOT = "IS_ROOT";
   public static final ImmutableBytesWritable IS_ROOT_KEY =
     new ImmutableBytesWritable(Bytes.toBytes(IS_ROOT));
-  public static final String IS_META = "IS_META";
 
+  public static final String IS_META = "IS_META";
   public static final ImmutableBytesWritable IS_META_KEY =
     new ImmutableBytesWritable(Bytes.toBytes(IS_META));
 
@@ -144,6 +153,12 @@ public class HTableDescriptor implements WritableComparable<HTableDescriptor> {
    */
   public HTableDescriptor() {
     super();
+    try {
+      setOwner(UserGroupInformation.getCurrentUser());
+    }
+    catch (IOException e) {
+      //..
+    }
   }
 
   /**
@@ -184,6 +199,7 @@ public class HTableDescriptor implements WritableComparable<HTableDescriptor> {
     super();
     this.name = desc.name.clone();
     this.nameAsString = Bytes.toString(this.name);
+
     setMetaFlags(this.name);
     for (HColumnDescriptor c: desc.families.values()) {
       this.families.put(c.getName(), new HColumnDescriptor(c));
@@ -470,6 +486,7 @@ public class HTableDescriptor implements WritableComparable<HTableDescriptor> {
   public String toString() {
     StringBuilder s = new StringBuilder();
     s.append('{');
+
     s.append(HConstants.NAME);
     s.append(" => '");
     s.append(Bytes.toString(name));
@@ -666,7 +683,7 @@ public class HTableDescriptor implements WritableComparable<HTableDescriptor> {
   public static final HTableDescriptor ROOT_TABLEDESC = new HTableDescriptor(
       HConstants.ROOT_TABLE_NAME,
       new HColumnDescriptor[] { new HColumnDescriptor(HConstants.CATALOG_FAMILY,
-          10,  // Ten is arbitrary number.  Keep versions to help debuggging.
+          10,  // Ten is arbitrary number.  Keep versions to help debugging.
           Compression.Algorithm.NONE.getName(), true, true, 8 * 1024,
           HConstants.FOREVER, StoreFile.BloomType.NONE.toString(),  
           HConstants.REPLICATION_SCOPE_LOCAL) });
@@ -675,8 +692,38 @@ public class HTableDescriptor implements WritableComparable<HTableDescriptor> {
   public static final HTableDescriptor META_TABLEDESC = new HTableDescriptor(
       HConstants.META_TABLE_NAME, new HColumnDescriptor[] {
           new HColumnDescriptor(HConstants.CATALOG_FAMILY,
-            10, // Ten is arbitrary number.  Keep versions to help debuggging.
+            10, // Ten is arbitrary number.  Keep versions to help debugging.
+            Compression.Algorithm.NONE.getName(), true, true, 8 * 1024,
+            HConstants.FOREVER, StoreFile.BloomType.NONE.toString(),
+            HConstants.REPLICATION_SCOPE_LOCAL),
+          new HColumnDescriptor(HConstants.ACL_FAMILY,
+            10, // Ten is arbitrary number.  Keep versions to help debugging.
             Compression.Algorithm.NONE.getName(), true, true, 8 * 1024,
             HConstants.FOREVER, StoreFile.BloomType.NONE.toString(),
             HConstants.REPLICATION_SCOPE_LOCAL)});
+
+
+  public void setOwner(UserGroupInformation owner) {
+    setOwnerString(owner.getUserName());
+  }
+
+  // used by admin.rb:alter(table_name,*args) to update owner.
+  public void setOwnerString(String owner_string) {
+    setValue(OWNER_KEY,Bytes.toBytes(owner_string));
+  }
+
+  /* doesn't work yet: needs some way to lookup
+     user information given user name.
+  public UserGroupInformation getOwner() {
+  return UserNameToUGI(getOwnerString());
+    }*/
+
+  public String getOwnerString() {
+    if (getValue(OWNER_KEY) != null) {
+      return Bytes.toString(getValue(OWNER_KEY));
+    }
+    // Note that every table should have an owner (i.e. should have OWNER_KEY set).
+    // .META. and -ROOT- should return system user as owner, not null (see MasterFileSystem.java:bootstrap()).
+    return (String)null;
+  }
 }

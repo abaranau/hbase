@@ -117,7 +117,6 @@ import org.apache.hadoop.io.MapWritable;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.net.DNS;
 import org.apache.hadoop.security.SecurityUtil;
-import org.apache.hadoop.util.StringUtils;
 import org.apache.zookeeper.KeeperException;
 
 /**

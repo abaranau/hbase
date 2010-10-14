@@ -496,7 +496,11 @@
       authorization decisions on client requests.
     </description>
   </property>
-
+  <property>
+    <name>hbase.superuser</name>
+    <value></value>
+    <description>The user who is solely authorized to alter tables, including table ownership.</description>
+  </property>
   <property>
     <name>hbase.rpc.engine</name>
     <value>org.apache.hadoop.hbase.ipc.SecureRpcEngine</value>
@@ -551,14 +555,20 @@
   </property>
 
   <property>
+    <name>zookeeper.znode.acl.parent</name>
+    <value>acl</value>
+    <description>Root ZNode for access control lists.</description>
+  </property>
+  
+  <property>
     <name>hbase.coprocessor.default.classes</name>
     <value></value>
     <description>A comma-separated list of Coprocessors that are loaded by
-    default. For any override coprocessor method, these classes will be called 
+    default. For any override coprocessor method from RegionObservor or 
+    Coprocessor, these classes' implementation will be called 
     in order. After implement your own
     Coprocessor, just put it in HBase's classpath and add the fully
     qualified class name here. 
-    A coprocessor can also be loaded on demand by setting HTableDescriptor.
     </description>
   </property> 
 

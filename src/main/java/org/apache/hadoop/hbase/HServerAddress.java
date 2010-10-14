@@ -114,7 +114,7 @@ public class HServerAddress implements WritableComparable<HServerAddress> {
 
   /** @return Hostname */
   public String getHostname() {
-    return address.getHostName();
+    return address.getHostName().toLowerCase();
   }
 
   /** @return The InetSocketAddress */

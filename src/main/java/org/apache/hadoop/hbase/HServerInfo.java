@@ -84,7 +84,7 @@ public class HServerInfo implements WritableComparable<HServerInfo> {
     this.startCode = startCode;
     this.load = new HServerLoad();
     this.infoPort = infoPort;
-    this.hostname = hostname;
+    this.hostname = hostname != null ? hostname.toLowerCase() : null;
   }
 
   /**
@@ -96,7 +96,8 @@ public class HServerInfo implements WritableComparable<HServerInfo> {
     this.startCode = other.getStartCode();
     this.load = other.getLoad();
     this.infoPort = other.getInfoPort();
-    this.hostname = other.hostname;
+    this.hostname = other.hostname != null ?
+        other.hostname.toLowerCase() : null;
   }
 
   public HServerLoad getLoad() {

@@ -216,6 +216,7 @@ Shell.load_command_group(
     drop
     enable
     exists
+    grant
     list
   ]
 )

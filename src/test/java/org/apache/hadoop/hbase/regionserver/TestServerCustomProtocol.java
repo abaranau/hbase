@@ -42,6 +42,7 @@ public class TestServerCustomProtocol {
     public int getPingCount();
     public int incrementCount(int diff);
     public String hello(String name);
+    public int hello2(int name);
   }
 
   /* Test protocol implementation */
@@ -72,6 +73,10 @@ public class TestServerCustomProtocol {
     @Override
     public long getProtocolVersion(String s, long l) throws IOException {
       return versionID;
+    }
+    
+    public int hello2(int a) {
+      return a;
     }
   }
 

@@ -47,11 +47,11 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.security.PrivilegedExceptionAction;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.io.ObjectWritable;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.io.WritableUtils;
 import org.apache.hadoop.ipc.VersionedProtocol;
@@ -1049,7 +1049,7 @@ public abstract class HBaseServer implements RpcServer {
       ByteArrayOutputStream buf = new ByteArrayOutputStream(buffersize);
       while (running) {
         try {
-          Call call = myCallQueue.take(); // pop the queue; maybe blocked here
+          final Call call = myCallQueue.take(); // pop the queue; maybe blocked here
 
           if (LOG.isDebugEnabled())
             LOG.debug(getName() + ": has #" + call.id + " from " +
@@ -1062,7 +1062,32 @@ public abstract class HBaseServer implements RpcServer {
           CurCall.set(call);
           // TODO: simple auth -- store user in context
           try {
-            value = call(call.connection.protocol, call.param, call.timestamp);             // make the call
+            if (call.connection.ticket == null) {
+              // No user associated with this call's connection:
+              // call.connection.ticket should have been set in Connection::processHeader().
+              if (LOG.isDebugEnabled()) {
+                LOG.debug(getName() + ": has no principal information associated with call #" + call.id + " from " +
+                          call.connection + " : proceeding using server user: '" + UserGroupInformation.getCurrentUser().getUserName() + "' instead.");
+              }
+
+              value = call(call.connection.protocol, call.param, call.timestamp);
+            }
+            else {
+              Object obj = (Writable)call.connection.ticket.doAs(new PrivilegedExceptionAction<Object>() {
+                  public Object run() throws IOException, InterruptedException {
+                    return call(call.connection.protocol, call.param,
+                                call.timestamp);
+                  }
+                });
+              
+              if (obj instanceof Writable) {
+                value = (Writable)obj;
+              }
+              else {
+                // doAs() return value could not be converted to Writable: 
+                // probably should throw an exception here in that case.
+              }
+            }
           } catch (Throwable e) {
             LOG.debug(getName()+", call "+call+": error: " + e, e);
             errorClass = e.getClass().getName();

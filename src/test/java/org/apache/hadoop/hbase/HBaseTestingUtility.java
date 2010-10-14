@@ -570,6 +570,16 @@ public class HBaseTestingUtility {
   }
 
   /**
+   * Drop an existing table
+   * @param tableName existing table
+   */
+  public void deleteTable(byte[] tableName) throws IOException {
+    HBaseAdmin admin = new HBaseAdmin(getConfiguration());
+    admin.disableTable(tableName);
+    admin.deleteTable(tableName);
+  }
+
+  /**
    * Provide an existing table name to truncate
    * @param tableName existing table
    * @return HTable to that new table

@@ -16,6 +16,7 @@
 
 package org.apache.hadoop.hbase.coprocessor;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
@@ -26,7 +27,6 @@ import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.regionserver.HRegion;
-import java.io.IOException;
 
 /**
  * An abstract class that implements Coprocessor and RegionObserver.

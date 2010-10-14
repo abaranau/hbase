@@ -32,6 +32,7 @@ import org.apache.hadoop.hbase.util.JenkinsHash;
 import org.apache.hadoop.hbase.util.MD5Hash;
 import org.apache.hadoop.io.VersionedWritable;
 import org.apache.hadoop.io.WritableComparable;
+import org.apache.hadoop.security.UserGroupInformation;
 
 /**
  * HRegion information.
@@ -174,6 +175,22 @@ public class HRegionInfo extends VersionedWritable implements WritableComparable
                                        regionId, false);
     this.regionNameStr = Bytes.toStringBinary(this.regionName);
     setHashCode();
+
+    if (tableDesc == HTableDescriptor.ROOT_TABLEDESC) {
+      try {
+        tableDesc.setOwnerString(UserGroupInformation.getCurrentUser().getUserName());
+      } catch (IOException ioe) {
+        LOG.debug("UGI.getCurrentUser() failed", ioe);
+      }
+    }
+
+    if (tableDesc == HTableDescriptor.META_TABLEDESC) {
+      try {
+        tableDesc.setOwnerString(UserGroupInformation.getCurrentUser().getUserName());
+      } catch (IOException ioe) {
+        LOG.debug("UGI.getCurrentUser() failed", ioe);
+      }
+    }
   }
 
   /** Default constructor - creates empty object */

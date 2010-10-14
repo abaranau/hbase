@@ -1,13 +1,9 @@
 /*
  * Copyright 2010 The Apache Software Foundation
  *
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
@@ -30,12 +26,8 @@ import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.client.*;
-import org.apache.hadoop.hbase.client.coprocessor.Batch.Call;
-import org.apache.hadoop.hbase.client.coprocessor.Batch.Callback;
-import org.apache.hadoop.hbase.coprocessor.BaseCommandTarget;
-import org.apache.hadoop.hbase.coprocessor.Coprocessor;
-import org.apache.hadoop.hbase.coprocessor.RegionObserver;
-import org.apache.hadoop.hbase.coprocessor.CoprocessorEnvironment;
+import org.apache.hadoop.hbase.client.coprocessor.Batch;
+import org.apache.hadoop.hbase.coprocessor.*;
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.hadoop.hbase.ipc.CoprocessorProtocol;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -209,6 +201,21 @@ public class CoprocessorHost {
       }
 
       @Override
+      public <T extends CoprocessorProtocol> T coprocessorProxy(Class<T> protocol, byte[] row) {
+        throw new UnsupportedOperationException("coprocessorProxy not allowed");
+      }
+
+      @Override
+      public <T extends CoprocessorProtocol, R> Map<byte[], R> coprocessorExec(Class<T> protocol, byte[] startKey, byte[] endKey, Batch.Call<T, R> callable) throws IOException, Throwable {
+        throw new UnsupportedOperationException("coprocessorExec not allowed");
+      }
+
+      @Override
+      public <T extends CoprocessorProtocol, R> void coprocessorExec(Class<T> protocol, byte[] startKey, byte[] endKey, Batch.Call<T, R> callable, Batch.Callback<R> callback) throws IOException, Throwable {
+        throw new UnsupportedOperationException("coprocessorExec not allowed");
+      }
+
+      @Override
       public void batch(List<Row> actions, Result[] results) throws IOException {
         table.batch(actions, results);
       }
@@ -221,26 +228,6 @@ public class CoprocessorHost {
       @Override
       public Result[] get(List<Get> gets) throws IOException {
         return table.get(gets);
-      }
-
-      @Override
-      public <T extends CoprocessorProtocol, R> void coprocessorExec(Class<T> protocol,
-          byte[] startKey, byte[] endKey, Call<T, R> callable,
-          Callback<R> callback) throws IOException, Throwable {
-        table.coprocessorExec(protocol, startKey, endKey, callable, callback);
-      }
-
-      @Override
-      public <T extends CoprocessorProtocol, R> Map<byte[], R> coprocessorExec(
-          Class<T> protocol, byte[] startKey, byte[] endKey, Call<T, R> callable)
-          throws IOException, Throwable {
-        return table.coprocessorExec(protocol, startKey, endKey, callable);
-      }
-
-      @Override
-      public <T extends CoprocessorProtocol> T coprocessorProxy(Class<T> protocol,
-          byte[] row) {
-        return table.coprocessorProxy(protocol, row);
       }
     }
 
@@ -338,6 +325,7 @@ public class CoprocessorHost {
     public Object remove(Object key) {
       return vars.remove(key);
     }
+
   }
 
   static final Log LOG = LogFactory.getLog(CoprocessorHost.class);
@@ -354,7 +342,7 @@ public class CoprocessorHost {
 
   /**
    * Constructor
-   * @param server the regionServer
+   * @param rsServices the regionServer
    * @param region the region
    * @param conf the configuration
    */
@@ -739,10 +727,13 @@ public class CoprocessorHost {
             .preGetClosestRowBefore(env, row, family, result);
         }
       }
-      return result;
+    }
+    catch (IOException e) {
+      throw new CoprocessorException("Coprocessor threw exception: " + e.toString());
     } finally {
       coprocessorLock.readLock().unlock();
     }
+    return result;
   }
 
   /**
@@ -763,6 +754,8 @@ public class CoprocessorHost {
         }
       }
       return result;
+    } catch (IOException e) {
+      throw new CoprocessorException("Coprocessor threw exception: " + e.toString());
     } finally {
       coprocessorLock.readLock().unlock();
     }
@@ -784,6 +777,8 @@ public class CoprocessorHost {
         }
       }
       return results;
+    } catch (IOException e) {
+      throw new CoprocessorException("Coprocessor threw exception: " + e.toString());
     } finally {
       coprocessorLock.readLock().unlock();
     }
@@ -805,6 +800,8 @@ public class CoprocessorHost {
         }
       }
       return results;
+    } catch (IOException e) {
+      throw new CoprocessorException("Coprocessor threw exception: " + e.toString());
     } finally {
       coprocessorLock.readLock().unlock();
     }
@@ -812,7 +809,6 @@ public class CoprocessorHost {
 
   /**
    * @param get the Get request
-   * @param exists the result returned by the region server
    * @exception IOException Exception
    */
   public void preExists(final Get get) throws IOException {
@@ -823,6 +819,8 @@ public class CoprocessorHost {
           ((RegionObserver)env.impl).preExists(env, get);
         }
       }
+    } catch (IOException e) {
+      throw new CoprocessorException("Coprocessor threw exception: " + e.toString());
     } finally {
       coprocessorLock.readLock().unlock();
     }
@@ -843,10 +841,12 @@ public class CoprocessorHost {
           exists &= ((RegionObserver)env.impl).postExists(env, get, exists);
         }
       }
-      return exists;
+    } catch (IOException e) {
+      throw new CoprocessorException("Coprocessor threw exception: " + e.toString());
     } finally {
       coprocessorLock.readLock().unlock();
     }
+    return exists;
   }
 
   /**
@@ -863,10 +863,12 @@ public class CoprocessorHost {
           familyMap = ((RegionObserver)env.impl).prePut(env, familyMap);
         }
       }
-      return familyMap;
+    } catch (IOException e) {
+      throw new CoprocessorException("Coprocessor threw exception: " + e.toString());
     } finally {
       coprocessorLock.readLock().unlock();
     }
+    return familyMap;
   }
 
   /**
@@ -883,10 +885,12 @@ public class CoprocessorHost {
           familyMap = ((RegionObserver)env.impl).postPut(env, familyMap);
         }
       }
-      return familyMap;
+    } catch (IOException e) {
+      throw new CoprocessorException("Coprocessor threw exception: " + e.toString());
     } finally {
       coprocessorLock.readLock().unlock();
     }
+    return familyMap;
   }
 
   /**
@@ -903,10 +907,13 @@ public class CoprocessorHost {
           familyMap = ((RegionObserver)env.impl).preDelete(env, familyMap);
         }
       }
-      return familyMap;
+    } catch (IOException e) {
+      throw new CoprocessorException("Coprocessor threw exception: " + e.toString());
     } finally {
       coprocessorLock.readLock().unlock();
     }
+      return familyMap;
+
   }
 
   /**
@@ -923,10 +930,12 @@ public class CoprocessorHost {
           familyMap = ((RegionObserver)env.impl).postDelete(env, familyMap);
         }
       }
-      return familyMap;
+    } catch (IOException e) {
+      throw new CoprocessorException("Coprocessor threw exception: " + e.toString());
     } finally {
       coprocessorLock.readLock().unlock();
     }
+      return familyMap;
   }
 
   /**
@@ -1076,6 +1085,8 @@ public class CoprocessorHost {
           ((RegionObserver)env.impl).preScannerOpen(env, scan);
         }
       }
+    } catch (IOException e) {
+      throw new CoprocessorException("Coprocessor threw exception: " + e.toString());
     } finally {
       coprocessorLock.readLock().unlock();
     }
@@ -1095,6 +1106,8 @@ public class CoprocessorHost {
           ((RegionObserver)env.impl).postScannerOpen(env, scan, scannerId);
         }
       }
+    } catch (IOException e) {
+      throw new CoprocessorException("Coprocessor threw exception: " + e.toString());
     } finally {
       coprocessorLock.readLock().unlock();
     }
@@ -1116,10 +1129,13 @@ public class CoprocessorHost {
             results);
         }
       }
-      return results;
+    } catch (IOException e) {
+      throw new CoprocessorException("Coprocessor threw exception: " + e.toString());
     } finally {
       coprocessorLock.readLock().unlock();
     }
+      return results;
+
   }
 
   /**
@@ -1138,10 +1154,13 @@ public class CoprocessorHost {
             results);
         }
       }
-      return results;
+    } catch (IOException e) {
+      throw new CoprocessorException("Coprocessor threw exception: " + e.toString());
     } finally {
       coprocessorLock.readLock().unlock();
     }
+      return results;
+
   }
 
   /**
@@ -1157,6 +1176,8 @@ public class CoprocessorHost {
           ((RegionObserver)env.impl).preScannerClose(env, scannerId);
         }
       }
+    } catch (IOException e) {
+      throw new CoprocessorException("Coprocessor threw exception: " + e.toString());
     } finally {
       coprocessorLock.readLock().unlock();
     }
@@ -1175,8 +1196,11 @@ public class CoprocessorHost {
           ((RegionObserver)env.impl).postScannerClose(env, scannerId);
         }
       }
+    } catch (IOException e) {
+      throw new CoprocessorException("Coprocessor threw exception: " + e.toString());
     } finally {
       coprocessorLock.readLock().unlock();
     }
   }
+
 }

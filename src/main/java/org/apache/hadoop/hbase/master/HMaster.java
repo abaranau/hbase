@@ -72,6 +72,7 @@ import org.apache.hadoop.hbase.master.handler.TableAddFamilyHandler;
 import org.apache.hadoop.hbase.master.handler.TableDeleteFamilyHandler;
 import org.apache.hadoop.hbase.master.handler.TableModifyFamilyHandler;
 import org.apache.hadoop.hbase.regionserver.HRegion;
+import org.apache.hadoop.hbase.security.AccessDeniedException;
 import org.apache.hadoop.hbase.security.HBasePolicyProvider;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.InfoServer;
@@ -87,6 +88,7 @@ import org.apache.hadoop.io.Text;
 import org.apache.hadoop.ipc.RemoteException;
 import org.apache.hadoop.net.DNS;
 import org.apache.hadoop.security.SecurityUtil;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.Watcher;
 
@@ -166,6 +168,8 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
 
   private Thread catalogJanitorChore;
 
+  private String superuser = null;
+
   /**
    * Initializes the HMaster. The steps are as follows:
    * <p>
@@ -202,6 +206,11 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
         "hbase.master.kerberos.principal", this.address.getHostname());
     HBasePolicyProvider.init(conf);
     // TODO: do we need a secret manager for digest auth?  If so need to set it in RpcServer here
+
+    this.superuser = conf.get("hbase.superuser","");
+    if (this.superuser.equals("")) {
+      this.superuser = UserGroupInformation.getCurrentUser().getUserName();
+    }
 
     // set the thread name now we have an address
     setName(MASTER + "-" + this.address);
@@ -729,11 +738,12 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
       LOG.warn("Interrupted waiting for meta availability", e);
       throw new IOException(e);
     }
-    createTable(newRegions, sync);
+
+    UserGroupInformation owner = UserGroupInformation.getCurrentUser();
+    createTable(newRegions, sync, owner);
   }
 
-  private synchronized void createTable(final HRegionInfo [] newRegions,
-      boolean sync)
+  private synchronized void createTable(final HRegionInfo [] newRegions, boolean sync, UserGroupInformation owner)
   throws IOException {
     String tableName = newRegions[0].getTableDesc().getNameAsString();
     if(MetaReader.tableExists(catalogTracker, tableName)) {
@@ -745,7 +755,7 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
           fileSystemManager.getRootDir(), conf);
 
       // 2. Insert into META
-      MetaEditor.addRegionToMeta(catalogTracker, region.getRegionInfo());
+      MetaEditor.addRegionToMeta(catalogTracker, region.getRegionInfo(),owner);
 
       // 3. Close the new region to flush to disk.  Close log file too.
       region.close();
@@ -860,6 +870,9 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
     }
     if (!getAssignmentManager().isTableDisabled(Bytes.toString(tableName))) {
       throw new TableNotDisabledException(tableName);
+    }
+    if (!(UserGroupInformation.getCurrentUser().getUserName().equals(superuser))) {
+      throw new AccessDeniedException("You cannot modify table '"+Bytes.toString(tableName)+"' because you are not superuser");
     }
   }
 

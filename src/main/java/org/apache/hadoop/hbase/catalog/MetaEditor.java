@@ -27,12 +27,14 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HServerInfo;
+import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.NotAllMetaRegionsOnlineException;
 import org.apache.hadoop.hbase.client.Delete;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.ipc.HRegionInterface;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.Writables;
+import org.apache.hadoop.security.UserGroupInformation;
 
 /**
  * Writes region and assignment information to <code>.META.</code>.
@@ -49,9 +51,12 @@ public class MetaEditor {
    * @throws IOException if problem connecting or updating meta
    */
   public static void addRegionToMeta(CatalogTracker catalogTracker,
-      HRegionInfo regionInfo)
+      HRegionInfo regionInfo, UserGroupInformation owner)
   throws IOException {
     Put put = new Put(regionInfo.getRegionName());
+    if (owner != null) {
+      regionInfo.getTableDesc().setOwnerString(owner.getUserName());
+    }
     put.add(HConstants.CATALOG_FAMILY, HConstants.REGIONINFO_QUALIFIER,
         Writables.getBytes(regionInfo));
     catalogTracker.waitForMetaServerConnectionDefault().put(
@@ -227,8 +232,17 @@ public class MetaEditor {
 
   private static Put addRegionInfo(final Put p, final HRegionInfo hri)
   throws IOException {
+
+    // Implement: alter <table>, {OWNER => '<username>'}.
+    // check for OWNER in hri.tableDesc: if found, set acl:owner to this username. 
+    HTableDescriptor desc = hri.getTableDesc();
+    String owner_name = desc.getValue("OWNER");
+    if (owner_name != null) {
+      hri.getTableDesc().setOwnerString(owner_name);
+    }
     p.add(HConstants.CATALOG_FAMILY, HConstants.REGIONINFO_QUALIFIER,
         Writables.getBytes(hri));
+
     return p;
   }
 
