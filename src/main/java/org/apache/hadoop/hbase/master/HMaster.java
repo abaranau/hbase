@@ -57,12 +57,7 @@ import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.MetaScanner.MetaScannerVisitor;
 import org.apache.hadoop.hbase.executor.ExecutorService;
 import org.apache.hadoop.hbase.executor.ExecutorService.ExecutorType;
-import org.apache.hadoop.hbase.ipc.HBaseRPC;
-import org.apache.hadoop.hbase.ipc.HBaseRPCProtocolVersion;
-import org.apache.hadoop.hbase.ipc.HBaseServer;
-import org.apache.hadoop.hbase.ipc.HMasterInterface;
-import org.apache.hadoop.hbase.ipc.HMasterRegionInterface;
-import org.apache.hadoop.hbase.ipc.RpcServer;
+import org.apache.hadoop.hbase.ipc.*;
 import org.apache.hadoop.hbase.master.LoadBalancer.RegionPlan;
 import org.apache.hadoop.hbase.master.handler.DeleteTableHandler;
 import org.apache.hadoop.hbase.master.handler.DisableTableHandler;
@@ -749,6 +744,7 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
       throw new IOException(e);
     }
 
+    UserGroupInformation owner = RequestContext.getRequestUser();
     createTable(newRegions, sync, owner);
   }
 
@@ -880,7 +876,8 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
     if (!getAssignmentManager().isTableDisabled(Bytes.toString(tableName))) {
       throw new TableNotDisabledException(tableName);
     }
-    if (!(UserGroupInformation.getCurrentUser().getUserName().equals(superuser))) {
+    UserGroupInformation requestor = RequestContext.getRequestUser();
+    if (requestor == null || !(requestor.getUserName().equals(superuser))) {
       throw new AccessDeniedException("You cannot modify table '"+Bytes.toString(tableName)+"' because you are not superuser");
     }
   }

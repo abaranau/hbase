@@ -31,6 +31,8 @@ import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.coprocessor.BaseRegionObserver;
 import org.apache.hadoop.hbase.coprocessor.CoprocessorEnvironment;
 import org.apache.hadoop.hbase.coprocessor.CoprocessorException;
+import org.apache.hadoop.hbase.ipc.HBaseRPC;
+import org.apache.hadoop.hbase.ipc.RequestContext;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.security.AccessDeniedException;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -144,29 +146,27 @@ public class AccessController extends BaseRegionObserver {
       LOG.debug("Owner of '" + htd.getNameAsString() + " is (incorrectly) null.");
     }
 
-    try {
-      user = UserGroupInformation.getCurrentUser();
-      if (owner.equals(user.getUserName())) {
-        // owner of table can do anything to the table.
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("User '" + user.getUserName() + "' is owner: allowed to " +
-            permRequest.toString() + " the table '" + htd.getNameAsString() +
-            "'");
-        }
-        return true;
-      } else if (LOG.isDebugEnabled()) {
-        LOG.debug("User '" + user.getUserName() +
-          "' is not owner of the table '" + htd.getNameAsString() +
-          "' (owner is : '" + owner + "')");
-      }
-    } catch (IOException ioe) {
-      //... problem getting user info: throw AccessDeniedException() probably?
-      LOG.info("UGI.getCurrentUser() failed", ioe);
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("User '" + user.getUserName() + "' is not allowed to " +
-          permRequest.toString() + " the table '" + htd.getNameAsString() + "'");
-      }
+    RequestContext ctx = RequestContext.get();
+    if (ctx != null) {
+      user = ctx.getUser();
+    }
+    if (user == null) {
+      LOG.info("No user associated with request.  Permission denied!");
       return false;
+    }
+
+    if (owner.equals(user.getUserName())) {
+      // owner of table can do anything to the table.
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("User '" + user.getUserName() + "' is owner: allowed to " +
+          permRequest.toString() + " the table '" + htd.getNameAsString() +
+          "'");
+      }
+      return true;
+    } else if (LOG.isDebugEnabled()) {
+      LOG.debug("User '" + user.getUserName() +
+        "' is not owner of the table '" + htd.getNameAsString() +
+        "' (owner is : '" + owner + "')");
     }
 
     if (LOG.isDebugEnabled()) {

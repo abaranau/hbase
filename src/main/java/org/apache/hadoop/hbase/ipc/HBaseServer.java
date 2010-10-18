@@ -76,7 +76,7 @@ public abstract class HBaseServer implements RpcServer {
    * The first four bytes of Hadoop RPC connections
    */
   public static final ByteBuffer HEADER = ByteBuffer.wrap("hrpc".getBytes());
-  public static final byte CURRENT_VERSION = 3;
+  public static final byte CURRENT_VERSION = 4;
 
   /**
    * How many calls/handler are allowed in the queue.
@@ -1062,36 +1062,29 @@ public abstract class HBaseServer implements RpcServer {
           CurCall.set(call);
           // TODO: simple auth -- store user in context
           try {
-            if (call.connection.ticket == null) {
+            if (LOG.isDebugEnabled()) {
+              if (call.connection.ticket == null) {
               // No user associated with this call's connection:
               // call.connection.ticket should have been set in Connection::processHeader().
-              if (LOG.isDebugEnabled()) {
                 LOG.debug(getName() + ": has no principal information associated with call #" + call.id + " from " +
                           call.connection + " : proceeding using server user: '" + UserGroupInformation.getCurrentUser().getUserName() + "' instead.");
               }
-
-              value = call(call.connection.protocol, call.param, call.timestamp);
-            }
-            else {
-              Object obj = (Writable)call.connection.ticket.doAs(new PrivilegedExceptionAction<Object>() {
-                  public Object run() throws IOException, InterruptedException {
-                    return call(call.connection.protocol, call.param,
-                                call.timestamp);
-                  }
-                });
-              
-              if (obj instanceof Writable) {
-                value = (Writable)obj;
-              }
               else {
-                // doAs() return value could not be converted to Writable: 
-                // probably should throw an exception here in that case.
+                LOG.debug("Executing call as "+call.connection.ticket.getUserName());
               }
             }
+
+            RequestContext.set(call.connection.ticket, getRemoteIp(), call.connection.protocol);
+            value = call(call.connection.protocol, call.param, call.timestamp);
           } catch (Throwable e) {
             LOG.debug(getName()+", call "+call+": error: " + e, e);
             errorClass = e.getClass().getName();
             error = StringUtils.stringifyException(e);
+          }
+          finally {
+            // Must always clears the request context to avoid leaking
+            // credentials between requests.
+            RequestContext.clear();
           }
           CurCall.set(null);
 
