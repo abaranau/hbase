@@ -1,5 +1,5 @@
 /**
- * Copyright 2007 The Apache Software Foundation
+ * Copyright 2010 The Apache Software Foundation
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -17,32 +17,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hadoop.hbase.util;
+package org.apache.hadoop.hbase.regionserver;
 
-import java.io.IOException;
+import org.apache.hadoop.hbase.DoNotRetryIOException;
 
-import org.apache.hadoop.hbase.AbstractMergeTestBase;
-import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.util.HMerge;
-
-/** Tests region merging */
-public class TestMergeMeta extends AbstractMergeTestBase {
-
-  /** constructor
-   * @throws Exception
-   */
-  public TestMergeMeta() throws Exception {
-    super(false);
-    conf.setLong("hbase.client.pause", 1 * 1000);
-    conf.setInt("hbase.client.retries.number", 2);
-  }
-
-  /**
-   * test case
-   * @throws IOException
-   */
-  public void testMergeMeta() throws IOException {
-    assertNotNull(dfsCluster);
-    HMerge.merge(conf, dfsCluster.getFileSystem(), HConstants.META_TABLE_NAME, false);
-  }
+/**
+ * Thrown by the region server when it is shutting down state.
+ */
+@SuppressWarnings("serial")
+public class RegionServerStoppedException extends DoNotRetryIOException {
 }

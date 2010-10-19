@@ -24,8 +24,6 @@ import java.lang.Thread.UncaughtExceptionHandler;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryUsage;
 import java.lang.reflect.Constructor;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.net.BindException;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
@@ -77,8 +75,8 @@ import org.apache.hadoop.hbase.catalog.MetaEditor;
 import org.apache.hadoop.hbase.catalog.RootLocationEditor;
 import org.apache.hadoop.hbase.client.Action;
 import org.apache.hadoop.hbase.client.Delete;
-import org.apache.hadoop.hbase.client.Exec;
-import org.apache.hadoop.hbase.client.ExecResult;
+import org.apache.hadoop.hbase.client.coprocessor.Exec;
+import org.apache.hadoop.hbase.client.coprocessor.ExecResult;
 import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.HConnection;
 import org.apache.hadoop.hbase.client.HConnectionManager;
@@ -279,7 +277,36 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
         HConstants.HBASE_REGIONSERVER_LEASE_PERIOD_KEY,
         HConstants.DEFAULT_HBASE_REGIONSERVER_LEASE_PERIOD);
 
-    initialize();
+    this.abortRequested = false;
+    this.stopped = false;
+
+    // Server to handle client requests
+    String machineName = DNS.getDefaultHost(conf.get(
+        "hbase.regionserver.dns.interface", "default"), conf.get(
+        "hbase.regionserver.dns.nameserver", "default"));
+    String addressStr = machineName + ":" +
+      conf.get(HConstants.REGIONSERVER_PORT,
+        Integer.toString(HConstants.DEFAULT_REGIONSERVER_PORT));
+    HServerAddress address = new HServerAddress(addressStr);
+    this.server = HBaseRPC.getServer(this,
+        new Class<?>[]{HRegionInterface.class, HBaseRPCErrorHandler.class,
+        OnlineRegions.class},
+        address.getBindAddress(),
+      address.getPort(), conf.getInt("hbase.regionserver.handler.count", 10),
+        conf.getInt("hbase.regionserver.metahandler.count", 10),
+        false, conf, QOS_THRESHOLD);
+    this.server.setErrorHandler(this);
+    this.server.setQosFunction(new QosFunction());
+
+    // HServerInfo can be amended by master.  See below in reportForDuty.
+    this.serverInfo = new HServerInfo(new HServerAddress(new InetSocketAddress(
+        address.getBindAddress(), this.server.getListenerAddress().getPort())),
+        System.currentTimeMillis(), this.conf.getInt(
+            "hbase.regionserver.info.port", 60030), machineName);
+    if (this.serverInfo.getServerAddress() == null) {
+      throw new NullPointerException("Server address cannot be null; "
+          + "hbase-958 debugging");
+    }
   }
 
   private static final int NORMAL_QOS = 0;
@@ -370,41 +397,17 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
    * @throws InterruptedException
    */
   private void initialize() throws IOException, InterruptedException {
-    this.abortRequested = false;
-    this.stopped = false;
-
-    // Server to handle client requests
-    String machineName = DNS.getDefaultHost(conf.get(
-        "hbase.regionserver.dns.interface", "default"), conf.get(
-        "hbase.regionserver.dns.nameserver", "default"));
-    String addressStr = machineName + ":" +
-      conf.get(HConstants.REGIONSERVER_PORT,
-        Integer.toString(HConstants.DEFAULT_REGIONSERVER_PORT));
-    HServerAddress address = new HServerAddress(addressStr);
-    this.server = HBaseRPC.getServer(this,
-        new Class<?>[]{HRegionInterface.class, HBaseRPCErrorHandler.class,
-        OnlineRegions.class},
-        address.getBindAddress(),
-        address.getPort(), conf.getInt("hbase.regionserver.handler.count", 10),
-        conf.getInt("hbase.regionserver.metahandler.count", 10),
-        false, conf, QOS_THRESHOLD);
-    this.server.setErrorHandler(this);
-    this.server.setQosFunction(new QosFunction());
-
-    // HServerInfo can be amended by master.  See below in reportForDuty.
-    this.serverInfo = new HServerInfo(new HServerAddress(new InetSocketAddress(
-        address.getBindAddress(), this.server.getListenerAddress().getPort())),
-        System.currentTimeMillis(), this.conf.getInt(
-            "hbase.regionserver.info.port", 60030), machineName);
-    if (this.serverInfo.getServerAddress() == null) {
-      throw new NullPointerException("Server address cannot be null; "
-          + "hbase-958 debugging");
-    }
-    initializeZooKeeper();
-    initializeThreads();
-    int nbBlocks = conf.getInt("hbase.regionserver.nbreservationblocks", 4);
-    for (int i = 0; i < nbBlocks; i++) {
-      reservedSpace.add(new byte[HConstants.DEFAULT_SIZE_RESERVATION_BLOCK]);
+    try {
+      initializeZooKeeper();
+      initializeThreads();
+      int nbBlocks = conf.getInt("hbase.regionserver.nbreservationblocks", 4);
+      for (int i = 0; i < nbBlocks; i++) {
+        reservedSpace.add(new byte[HConstants.DEFAULT_SIZE_RESERVATION_BLOCK]);
+      }
+    } catch (Throwable t) {
+      // Call stop if error or process will stick around for ever since server
+      // puts up non-daemon threads.
+      this.server.stop();
     }
   }
 
@@ -418,7 +421,7 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
    */
   private void initializeZooKeeper() throws IOException, InterruptedException {
     // Open connection to zookeeper and set primary watcher
-    zooKeeper = new ZooKeeperWatcher(conf, REGIONSERVER +
+    zooKeeper = new ZooKeeperWatcher(conf, REGIONSERVER + ":" +
       serverInfo.getServerAddress().getPort(), this);
 
     // Create the master address manager, register with zk, and start it.  Then
@@ -474,6 +477,14 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
    * load/unload instructions.
    */
   public void run() {
+
+    try {
+      // Initialize threads and wait for a master
+      initialize();
+    } catch (Exception e) {
+      abort("Fatal exception during initialization", e);
+    }
+
     this.regionServerThread = Thread.currentThread();
     boolean calledCloseUserRegions = false;
     try {
@@ -576,6 +587,9 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
       closeAllScanners();
       LOG.info("stopping server at: " + this.serverInfo.getServerName());
     }
+    // Interrupt catalog tracker here in case any regions being opened out in
+    // handlers are stuck waiting on meta or root.
+    this.catalogTracker.stop();
     waitOnAllRegionsToClose();
 
     // Make sure the proxy is down.
@@ -619,9 +633,19 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
     this.serverInfo.setLoad(buildServerLoad());
     this.requestCount.set(0);
     addOutboundMsgs(outboundMessages);
-    HMsg [] msgs = this.hbaseMaster.regionServerReport(this.serverInfo,
-      outboundMessages.toArray(HMsg.EMPTY_HMSG_ARRAY),
-      getMostLoadedRegions());
+    HMsg [] msgs = null;
+    while (!this.stopped) {
+      try {
+        msgs = this.hbaseMaster.regionServerReport(this.serverInfo,
+          outboundMessages.toArray(HMsg.EMPTY_HMSG_ARRAY),
+          getMostLoadedRegions());
+        break;
+      } catch (IOException ioe) {
+        // Couldn't connect to the master, get location from zk and reconnect
+        // Method blocks until new master is found or we are stopped
+        getMaster();
+      }
+    }
     updateOutboundMsgs(outboundMessages);
     outboundMessages.clear();
 
@@ -1214,8 +1238,10 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
         r.hasReferences()? "Region has references on open" :
           "Region has too many store files");
     }
-    // Add to online regions
+
+    // Add to online regions if all above was successful.
     addToOnlineRegions(r);
+
     // Update ZK, ROOT or META
     if (r.getRegionInfo().isRootRegion()) {
       RootLocationEditor.setRootLocation(getZooKeeper(),
@@ -1294,18 +1320,17 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
    * Method will block until a master is available. You can break from this
    * block by requesting the server stop.
    *
-   * @return
+   * @return master address, or null if server has been stopped
    */
-  private boolean getMaster() {
+  private HServerAddress getMaster() {
     HServerAddress masterAddress = null;
     while ((masterAddress = masterAddressManager.getMasterAddress()) == null) {
       if (stopped) {
-        return false;
+        return null;
       }
       LOG.debug("No master found, will retry");
       sleeper.sleep();
     }
-    LOG.info("Telling master at " + masterAddress + " that we are up");
     HMasterRegionInterface master = null;
     while (!stopped && master == null) {
       try {
@@ -1320,8 +1345,9 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
         sleeper.sleep();
       }
     }
+    LOG.info("Connected to master at " + masterAddress);
     this.hbaseMaster = master;
-    return true;
+    return masterAddress;
   }
 
   /**
@@ -1344,7 +1370,8 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
    * us by the master.
    */
   private MapWritable reportForDuty() {
-    while (!stopped && !getMaster()) {
+    HServerAddress masterAddress = null;
+    while (!stopped && (masterAddress = getMaster()) == null) {
       sleeper.sleep();
       LOG.warn("Unable to get master for initialization");
     }
@@ -1359,6 +1386,7 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
           ZKUtil.joinZNode(zooKeeper.rsZNode, ZKUtil.getNodeName(serverInfo)),
           this.serverInfo.getServerAddress());
         this.serverInfo.setLoad(buildServerLoad());
+        LOG.info("Telling master at " + masterAddress + " that we are up");
         result = this.hbaseMaster.regionServerStartup(this.serverInfo);
         break;
       } catch (IOException e) {
@@ -1936,9 +1964,11 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
   // Region open/close direct RPCs
 
   @Override
-  public void openRegion(HRegionInfo region) {
+  public void openRegion(HRegionInfo region)
+  throws RegionServerStoppedException {
     LOG.info("Received request to open region: " +
       region.getRegionNameAsString());
+    if (this.stopped) throw new RegionServerStoppedException();
     if (region.isRootRegion()) {
       this.service.submit(new OpenRootHandler(this, this, region));
     } else if(region.isMetaRegion()) {
@@ -1949,7 +1979,8 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
   }
 
   @Override
-  public void openRegions(List<HRegionInfo> regions) {
+  public void openRegions(List<HRegionInfo> regions)
+  throws RegionServerStoppedException {
     LOG.info("Received request to open " + regions.size() + " region(s)");
     for (HRegionInfo region: regions) openRegion(region);
   }
@@ -2339,9 +2370,11 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
       // actions in the list.
       Collections.sort(actionsForRegion);
       Row action = null;
+      List<Action> puts = new ArrayList<Action>();
       try {
         for (Action a : actionsForRegion) {
           action = a.getAction();
+          // TODO catch exceptions so we can report them on a per-item basis.
           if (action instanceof Delete) {
             delete(regionName, (Delete) action);
             response.add(regionName, new Pair<Integer, Result>(
@@ -2350,17 +2383,53 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
             response.add(regionName, new Pair<Integer, Result>(
                 a.getOriginalIndex(), get(regionName, (Get) action)));
           } else if (action instanceof Put) {
-            put(regionName, (Put) action);
-            response.add(regionName, new Pair<Integer, Result>(
-                a.getOriginalIndex(), new Result()));
+            puts.add(a);
           } else if (action instanceof Exec) {
-            ExecResult result = exec(regionName, (Exec)action);
+            ExecResult result = execCoprocessor(regionName, (Exec)action);
             response.add(regionName, new Pair<Integer, Object>(
                 a.getOriginalIndex(), result.getValue()
             ));
           } else {
             LOG.debug("Error: invalid Action, row must be a Get, Delete, Put or Exec.");
             throw new IllegalArgumentException("Invalid Action, row must be a Get, Delete, Put or Exec.");
+          }
+        }
+
+        // We do the puts with result.put so we can get the batching efficiency
+        // we so need. All this data munging doesn't seem great, but at least
+        // we arent copying bytes or anything.
+        if (!puts.isEmpty()) {
+          HRegion region = getRegion(regionName);
+          if (!region.getRegionInfo().isMetaTable()) {
+            this.cacheFlusher.reclaimMemStoreMemory();
+          }
+
+          Pair<Put,Integer> [] putsWithLocks = new Pair[puts.size()];
+          int i = 0;
+          for (Action a : puts) {
+            Put p = (Put) a.getAction();
+
+            Integer lock = getLockFromId(p.getLockId());
+            putsWithLocks[i++] = new Pair<Put, Integer>(p, lock);
+          }
+
+          this.requestCount.addAndGet(puts.size());
+
+          OperationStatusCode[] codes = region.put(putsWithLocks);
+          for( i = 0 ; i < codes.length ; i++) {
+            OperationStatusCode code = codes[i];
+
+            Action theAction = puts.get(i);
+            Result result = null;
+
+            if (code == OperationStatusCode.SUCCESS) {
+              result = new Result();
+            }
+            // TODO turning the alternate exception into a different result
+
+            response.add(regionName,
+                new Pair<Integer, Result>(
+                    theAction.getOriginalIndex(), result));
           }
         }
       } catch (IOException ioe) {
@@ -2410,7 +2479,7 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
    * @see org.apache.hadoop.hbase.regionserver.HRegion#registerProtocol(Class, org.apache.hadoop.hbase.ipc.CoprocessorProtocol)
    */
   @Override
-  public ExecResult exec(byte[] regionName, Exec call)
+  public ExecResult execCoprocessor(byte[] regionName, Exec call)
       throws IOException {
     checkOpen();
     requestCount.incrementAndGet();

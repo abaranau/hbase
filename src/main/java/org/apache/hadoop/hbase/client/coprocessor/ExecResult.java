@@ -17,7 +17,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hadoop.hbase.client;
+package org.apache.hadoop.hbase.client.coprocessor;
 
 import org.apache.hadoop.hbase.io.HbaseObjectWritable;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -28,9 +28,19 @@ import java.io.DataOutput;
 import java.io.IOException;
 
 /**
- * Represents the return value from a {@link Exec} invocation.  This simply
+ * Represents the return value from a {@link org.apache.hadoop.hbase.client.coprocessor.Exec} invocation.  This simply
  * wraps the value for easier {@link org.apache.hadoop.hbase.io.HbaseObjectWritable}
  * serialization.
+ *
+ * <p>
+ * This class is used internally by the HBase client code to properly serialize
+ * responses from {@link org.apache.hadoop.hbase.ipc.CoprocessorProtocol} method
+ * invocations.  It should not be used directly by clients.
+ * </p>
+ *
+ * @see Exec
+ * @see org.apache.hadoop.hbase.client.HTable#coprocessorExec(Class, byte[], byte[], org.apache.hadoop.hbase.client.coprocessor.Batch.Call)
+ * @see org.apache.hadoop.hbase.client.HTable#coprocessorExec(Class, byte[], byte[], org.apache.hadoop.hbase.client.coprocessor.Batch.Call, org.apache.hadoop.hbase.client.coprocessor.Batch.Callback)
  */
 public class ExecResult implements Writable {
   private byte[] regionName;

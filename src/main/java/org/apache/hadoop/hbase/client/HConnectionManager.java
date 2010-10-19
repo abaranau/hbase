@@ -35,7 +35,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hbase.Abortable;
 import org.apache.hadoop.hbase.DoNotRetryIOException;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.HRegionInfo;
@@ -49,6 +48,7 @@ import org.apache.hadoop.hbase.RemoteExceptionHandler;
 import org.apache.hadoop.hbase.TableNotFoundException;
 import org.apache.hadoop.hbase.ZooKeeperConnectionException;
 import org.apache.hadoop.hbase.client.MetaScanner.MetaScannerVisitor;
+import org.apache.hadoop.hbase.client.coprocessor.Batch;
 import org.apache.hadoop.hbase.ipc.*;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.Pair;
@@ -61,21 +61,54 @@ import org.apache.hadoop.ipc.RemoteException;
 import org.apache.zookeeper.KeeperException;
 
 /**
- * A non-instantiable class that manages connections to tables.
- * Used by {@link HTable} and {@link HBaseAdmin}
+ * A non-instantiable class that manages {@link HConnection}s.
+ * This class has a static Map of {@link HConnection} instances keyed by
+ * {@link Configuration}; all invocations of {@link #getConnection(Configuration)}
+ * that pass the same {@link Configuration} instance will be returned the same
+ * {@link  HConnection} instance (Adding properties to a Configuration
+ * instance does not change its object identity).  Sharing {@link HConnection}
+ * instances is usually what you want; all clients of the {@link HConnection}
+ * instances share the HConnections' cache of Region locations rather than each
+ * having to discover for itself the location of meta, root, etc.  It makes
+ * sense for the likes of the pool of HTables class {@link HTablePool}, for
+ * instance (If concerned that a single {@link HConnection} is insufficient
+ * for sharing amongst clients in say an heavily-multithreaded environment,
+ * in practise its not proven to be an issue.  Besides, {@link HConnection} is
+ * implemented atop Hadoop RPC and as of this writing, Hadoop RPC does a
+ * connection per cluster-member, exclusively).
+ *
+ * <p>But sharing connections
+ * makes clean up of {@link HConnection} instances a little awkward.  Currently,
+ * clients cleanup by calling
+ * {@link #deleteConnection(Configuration, boolean)}.  This will shutdown the
+ * zookeeper connection the HConnection was using and clean up all
+ * HConnection resources as well as stopping proxies to servers out on the
+ * cluster. Not running the cleanup will not end the world; it'll
+ * just stall the closeup some and spew some zookeeper connection failed
+ * messages into the log.  Running the cleanup on a {@link HConnection} that is
+ * subsequently used by another will cause breakage so be careful running
+ * cleanup.
+ * <p>To create a {@link HConnection} that is not shared by others, you can
+ * create a new {@link Configuration} instance, pass this new instance to
+ * {@link #getConnection(Configuration)}, and then when done, close it up by
+ * doing something like the following:
+ * <pre>
+ * {@code
+ * Configuration newConfig = new Configuration(originalConf);
+ * HConnection connection = HConnectionManager.getConnection(newConfig);
+ * // Use the connection to your hearts' delight and then when done...
+ * HConnectionManager.deleteConnection(newConfig, true);
+ * }
+ * </pre>
+ * <p>Cleanup used to be done inside in a shutdown hook.  On startup we'd
+ * register a shutdown hook that called {@link #deleteAllConnections(boolean)}
+ * on its way out but the order in which shutdown hooks run is not defined so
+ * were problematic for clients of HConnection that wanted to register their
+ * own shutdown hooks so we removed ours though this shifts the onus for
+ * cleanup to the client.
  */
 @SuppressWarnings("serial")
 public class HConnectionManager {
-  // Register a shutdown hook, one that cleans up RPC and closes zk sessions.
-  static {
-    Runtime.getRuntime().addShutdownHook(new Thread("HCM.shutdownHook") {
-      @Override
-      public void run() {
-        HConnectionManager.deleteAllConnections(true);
-      }
-    });
-  }
-
   static final int MAX_CACHED_HBASE_INSTANCES = 31;
 
   // A LRU Map of Configuration hashcode -> TableServers. We set instances to 31.
@@ -98,7 +131,8 @@ public class HConnectionManager {
   }
 
   /**
-   * Get the connection that goes with the passed <code>conf</code> configuration.
+   * Get the connection that goes with the passed <code>conf</code>
+   * configuration instance.
    * If no current connection exists, method creates a new connection for the
    * passed <code>conf</code> instance.
    * @param conf configuration
@@ -119,9 +153,13 @@ public class HConnectionManager {
   }
 
   /**
-   * Delete connection information for the instance specified by configuration
-   * @param conf configuration
-   * @param stopProxy stop the proxy as well
+   * Delete connection information for the instance specified by configuration.
+   * This will close connection to the zookeeper ensemble and let go of all
+   * resources.
+   * @param conf configuration whose identity is used to find {@link HConnection}
+   * instance.
+   * @param stopProxy Shuts down all the proxy's put up to cluster members
+   * including to cluster HMaster.  Calls {@link HBaseRPC#stopProxy(org.apache.hadoop.ipc.VersionedProtocol)}.
    */
   public static void deleteConnection(Configuration conf, boolean stopProxy) {
     synchronized (HBASE_INSTANCES) {
@@ -173,7 +211,7 @@ public class HConnectionManager {
   }
 
   /* Encapsulates connection to zookeeper and regionservers.*/
-  static class HConnectionImplementation implements HConnection, Abortable {
+  static class HConnectionImplementation implements HConnection {
     static final Log LOG = LogFactory.getLog(HConnectionImplementation.class);
     private final Class<? extends HRegionInterface> serverInterfaceClass;
     private final long pause;
@@ -223,17 +261,12 @@ public class HConnectionManager {
     public HConnectionImplementation(Configuration conf)
     throws ZooKeeperConnectionException {
       this.conf = conf;
-
-      String serverClassName =
-        conf.get(HConstants.REGION_SERVER_CLASS,
-            HConstants.DEFAULT_REGION_SERVER_CLASS);
-
+      String serverClassName = conf.get(HConstants.REGION_SERVER_CLASS,
+        HConstants.DEFAULT_REGION_SERVER_CLASS);
       this.closed = false;
-
       try {
         this.serverInterfaceClass =
           (Class<? extends HRegionInterface>) Class.forName(serverClassName);
-
       } catch (ClassNotFoundException e) {
         throw new UnsupportedOperationException(
             "Unable to find region server interface " + serverClassName, e);
@@ -262,10 +295,8 @@ public class HConnectionManager {
       this.masterChecked = false;
     }
 
-    @Override
-    public String toString() {
-      // Return our zk identifier ... it 'hconnection + zk sessionid'.
-      return this.zooKeeper.toString();
+    public Configuration getConfiguration() {
+      return this.conf;
     }
 
     private long getPauseTime(int tries) {
@@ -507,7 +538,8 @@ public class HConnectionManager {
 
     private HRegionLocation locateRegion(final byte [] tableName,
       final byte [] row, boolean useCache)
-    throws IOException{
+    throws IOException {
+      if (this.closed) throw new IOException(toString() + " closed");
       if (tableName == null || tableName.length == 0) {
         throw new IllegalArgumentException(
             "table name cannot be null or zero length");
@@ -517,7 +549,8 @@ public class HConnectionManager {
         try {
           HServerAddress hsa =
             this.rootRegionTracker.waitRootRegionLocation(this.rpcTimeout);
-          LOG.debug("Lookedup root region location " + hsa);
+          LOG.debug("Lookedup root region location, connection=" + this +
+            "; hsa=" + hsa);
           if (hsa == null) return null;
           return new HRegionLocation(HRegionInfo.ROOT_REGIONINFO, hsa);
         } catch (InterruptedException e) {
@@ -624,6 +657,8 @@ public class HConnectionManager {
         try {
           // locate the root or meta region
           metaLocation = locateRegion(parentTable, metaKey);
+          // If null still, go around again.
+          if (metaLocation == null) continue;
           HRegionInterface server =
             getHRegionConnection(metaLocation.getServerAddress());
 
@@ -1022,6 +1057,7 @@ public class HConnectionManager {
         this.zooKeeper.close();
         this.zooKeeper = null;
       }
+      this.closed = true;
     }
 
     private <R> Callable<MultiResponse<R>> createCallable(
@@ -1056,21 +1092,20 @@ public class HConnectionManager {
         throw new IllegalArgumentException("argument results must be the same size as argument list");
       }
 
-      Object[] tmpResults = processBatchCallback(list, tableName, pool, null);
-      System.arraycopy(tmpResults, 0, results, 0, results.length);
+      processBatchCallback(list, tableName, pool, results, null);
     }
 
     /**
-     * Executes the given {@link org.apache.hadoop.hbase.client.Batch.Call} callable for each row in the
-     * given list and invokes {@link org.apache.hadoop.hbase.client.Batch.Callback#update(byte[], byte[], Object)}
+     * Executes the given {@link org.apache.hadoop.hbase.client.coprocessor.Batch.Call} callable for each row in the
+     * given list and invokes {@link org.apache.hadoop.hbase.client.coprocessor.Batch.Callback#update(byte[], byte[], Object)}
      * for each result returned.
      *
      * @param protocol the protocol interface being called
      * @param rows a list of row keys for which the callable should be invoked
      * @param tableName table name for the coprocessor invoked
      * @param pool ExecutorService used to submit the calls per row
-     * @param callable instance on which to invoke {@link org.apache.hadoop.hbase.client.Batch.Call#call(Object)} for each row
-     * @param callback instance on which to invoke {@link org.apache.hadoop.hbase.client.Batch.Callback#update(byte[], byte[], Object)} for each result
+     * @param callable instance on which to invoke {@link org.apache.hadoop.hbase.client.coprocessor.Batch.Call#call(Object)} for each row
+     * @param callback instance on which to invoke {@link org.apache.hadoop.hbase.client.coprocessor.Batch.Callback#update(byte[], byte[], Object)} for each result
      * @param <T> the protocol interface type
      * @param <R> the callable's return type
      * @throws IOException
@@ -1122,22 +1157,22 @@ public class HConnectionManager {
      * Parameterized batch processing, allowing varying return types for different
      * {@link Row} implementations.
      */
-    public <R> R[] processBatchCallback(
+    public <R> void processBatchCallback(
         List<? extends Row> list,
         byte[] tableName,
         ExecutorService pool,
+        R[] results,
         Batch.Callback<R> callback) throws IOException {
 
-      if (list.size() == 0) {
-        return null;
+      // results must be the same size as list
+      if (results.length != list.size()) {
+        throw new IllegalArgumentException("argument results must be the same size as argument list");
       }
-      List<R> results = new ArrayList<R>(list.size());
-      // prefill to set size
-      for (int i=0; i<list.size(); i++) {
-        results.add(null);
+      if (list.size() == 0) {
+        return;
       }
       if (LOG.isDebugEnabled()) {
-        LOG.debug("expecting "+results.size()+" results");
+        LOG.debug("expecting "+results.length+" results");
       }
 
       List<Row> workingList = new ArrayList<Row>(list);
@@ -1211,11 +1246,11 @@ public class HConnectionManager {
                 List<Pair<Integer, R>> regionResults = e.getValue();
                 for (Pair<Integer, R> regionResult : regionResults) {
                   if (regionResult == null) {
-                    // failed
+                    // if the first/only record is 'null' the entire region failed.
                     LOG.debug("Failures for region: " + Bytes.toStringBinary(regionName) + ", removing from cache");
                   } else {
                     // success
-                    results.set(regionResult.getFirst(), regionResult.getSecond());
+                    results[regionResult.getFirst()] = regionResult.getSecond();
                     if (callback != null) {
                       callback.update(e.getKey(),
                           list.get(regionResult.getFirst()).getRow(),
@@ -1242,39 +1277,37 @@ public class HConnectionManager {
               singleRowCause = e.getCause();
             }
           }
-          // Find failures (i.e. null Result), and add them to the workingList (in
-          // order), so they can be retried.
-          retry = false;
-          workingList.clear();
-          for (int i = 0; i < results.size(); i++) {
-            if (results.get(i) == null) {
-              retry = true;
-              Row row = list.get(i);
-              workingList.add(row);
-              deleteCachedLocation(tableName, row.getRow());
-            } else {
-              // add null to workingList, so the order remains consistent with the original list argument.
-              workingList.add(null);
-            }
-          }
         }
 
-        if (Thread.currentThread().isInterrupted()) {
-          throw new IOException("Aborting attempt because of a thread interruption");
-        }
-
-        if (retry) {
-          // ran out of retries and didn't successfully finish everything!
-          if (singleRowCause != null) {
-            throw new IOException(singleRowCause);
+        // Find failures (i.e. null Result), and add them to the workingList (in
+        // order), so they can be retried.
+        retry = false;
+        workingList.clear();
+        for (int i = 0; i < results.length; i++) {
+          if (results[i] == null) {
+            retry = true;
+            Row row = list.get(i);
+            workingList.add(row);
+            deleteCachedLocation(tableName, row.getRow());
           } else {
-            throw new RetriesExhaustedException("Still had " + workingList.size()
-                + " actions left after retrying " + numRetries + " times.");
+            // add null to workingList, so the order remains consistent with the original list argument.
+            workingList.add(null);
           }
         }
       }
+      if (Thread.currentThread().isInterrupted()) {
+        throw new IOException("Aborting attempt because of a thread interruption");
+      }
 
-      return (R[])results.toArray();
+      if (retry) {
+        // ran out of retries and didn't successfully finish everything!
+        if (singleRowCause != null) {
+          throw new IOException(singleRowCause);
+        } else {
+          throw new RetriesExhaustedException("Still had " + workingList.size()
+              + " actions left after retrying " + numRetries + " times.");
+        }
+      }
     }
 
     /**
@@ -1365,6 +1398,7 @@ public class HConnectionManager {
     public void abort(final String msg, Throwable t) {
       if (t != null) LOG.fatal(msg, t);
       else LOG.fatal(msg);
+      this.closed = true;
     }
   }
 }

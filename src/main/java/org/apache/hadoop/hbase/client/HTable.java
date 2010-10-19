@@ -19,30 +19,9 @@
  */
 package org.apache.hadoop.hbase.client;
 
-import com.google.common.base.Function;
-import com.google.common.collect.Lists;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hbase.DoNotRetryIOException;
-import org.apache.hadoop.hbase.HBaseConfiguration;
-import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.HRegionInfo;
-import org.apache.hadoop.hbase.HRegionLocation;
-import org.apache.hadoop.hbase.HServerAddress;
-import org.apache.hadoop.hbase.HTableDescriptor;
-import org.apache.hadoop.hbase.KeyValue;
-import org.apache.hadoop.hbase.NotServingRegionException;
-import org.apache.hadoop.hbase.UnknownScannerException;
-import org.apache.hadoop.hbase.ZooKeeperConnectionException;
-import org.apache.hadoop.hbase.client.MetaScanner.MetaScannerVisitor;
-import org.apache.hadoop.hbase.ipc.CoprocessorProtocol;
-import org.apache.hadoop.hbase.ipc.ExecRPCInvoker;
-import org.apache.hadoop.hbase.util.Bytes;
-import org.apache.hadoop.hbase.util.Pair;
-import org.apache.hadoop.hbase.util.Writables;
-
 import java.io.IOException;
+import java.io.DataInput;
+import java.io.DataOutput;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -58,21 +37,42 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.DoNotRetryIOException;
+import org.apache.hadoop.hbase.HBaseConfiguration;
+import org.apache.hadoop.hbase.HConstants;
+import org.apache.hadoop.hbase.HRegionInfo;
+import org.apache.hadoop.hbase.HRegionLocation;
+import org.apache.hadoop.hbase.HServerAddress;
+import org.apache.hadoop.hbase.HTableDescriptor;
+import org.apache.hadoop.hbase.KeyValue;
+import org.apache.hadoop.hbase.NotServingRegionException;
+import org.apache.hadoop.hbase.UnknownScannerException;
+import org.apache.hadoop.hbase.ZooKeeperConnectionException;
+import org.apache.hadoop.hbase.client.MetaScanner.MetaScannerVisitor;
+import org.apache.hadoop.hbase.client.coprocessor.Batch;
+import org.apache.hadoop.hbase.ipc.CoprocessorProtocol;
+import org.apache.hadoop.hbase.ipc.ExecRPCInvoker;
+import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.Pair;
+import org.apache.hadoop.hbase.util.Writables;
 
 /**
  * Used to communicate with a single HBase table.
- * 
+ *
  * This class is not thread safe for updates; the underlying write buffer can
  * be corrupted if multiple threads contend over a single HTable instance.
- * 
+ *
  * <p>Instances of HTable passed the same {@link Configuration} instance will
- * share connections to master and the zookeeper ensemble as well as caches of
- * region locations.  This happens because they will all share the same
- * {@link HConnection} instance (internally we keep a Map of {@link HConnection}
- * instances keyed by {@link Configuration}).
- * {@link HConnection} will read most of the
+ * share connections to servers out on the cluster and to the zookeeper ensemble
+ * as well as caches of  region locations.  This is usually a *good* thing.
+ * This happens because they will all share the same underlying
+ * {@link HConnection} instance.  See {@link HConnectionManager} for more on
+ * how this mechanism works.
+ *
+ * <p>{@link HConnection} will read most of the
  * configuration it needs from the passed {@link Configuration} on initial
  * construction.  Thereafter, for settings such as
  * <code>hbase.client.pause</code>, <code>hbase.client.retries.number</code>,
@@ -81,10 +81,13 @@ import java.io.DataOutput;
  * will go unnoticed.  To run with changed values, make a new
  * {@link HTable} passing a new {@link Configuration} instance that has the
  * new configuration.
- * 
+ *
  * @see HBaseAdmin for create, drop, list, enable and disable of tables.
+ * @see HConnection
+ * @see HConnectionManager
  */
 public class HTable implements HTableInterface {
+  private static final Log LOG = LogFactory.getLog(HTable.class);
   private final HConnection connection;
   private final byte [] tableName;
   protected final int scannerTimeout;
@@ -101,7 +104,7 @@ public class HTable implements HTableInterface {
   /**
    * Creates an object to access a HBase table.
    * Internally it creates a new instance of {@link Configuration} and a new
-   * client to zookeeper as well as other resources.  It also comes up with 
+   * client to zookeeper as well as other resources.  It also comes up with
    * a fresh view of the cluster and must do discovery from scratch of region
    * locations; i.e. it will not make use of already-cached region locations if
    * available. Use only when being quick and dirty.
@@ -116,7 +119,7 @@ public class HTable implements HTableInterface {
   /**
    * Creates an object to access a HBase table.
    * Internally it creates a new instance of {@link Configuration} and a new
-   * client to zookeeper as well as other resources.  It also comes up with 
+   * client to zookeeper as well as other resources.  It also comes up with
    * a fresh view of the cluster and must do discovery from scratch of region
    * locations; i.e. it will not make use of already-cached region locations if
    * available. Use only when being quick and dirty.
@@ -177,7 +180,7 @@ public class HTable implements HTableInterface {
       HConstants.HBASE_CLIENT_SCANNER_MAX_RESULT_SIZE_KEY,
       HConstants.DEFAULT_HBASE_CLIENT_SCANNER_MAX_RESULT_SIZE);
     this.maxKeyValueSize = conf.getInt("hbase.client.keyvalue.maxsize", -1);
-    
+
     int nrThreads = conf.getInt("hbase.htable.threads.max", getCurrentNrHRS());
     if (nrThreads == 0) {
       nrThreads = 1; // is there a better default?
@@ -352,9 +355,14 @@ public class HTable implements HTableInterface {
     final List<byte[]> endKeyList = new ArrayList<byte[]>();
     MetaScannerVisitor visitor = new MetaScannerVisitor() {
       public boolean processRow(Result rowResult) throws IOException {
-        HRegionInfo info = Writables.getHRegionInfo(
-            rowResult.getValue(HConstants.CATALOG_FAMILY,
-                HConstants.REGIONINFO_QUALIFIER));
+        byte [] bytes = rowResult.getValue(HConstants.CATALOG_FAMILY,
+          HConstants.REGIONINFO_QUALIFIER);
+        if (bytes == null) {
+          LOG.warn("Null " + HConstants.REGIONINFO_QUALIFIER + " cell in " +
+            rowResult);
+          return true;
+        }
+        HRegionInfo info = Writables.getHRegionInfo(bytes);
         if (Bytes.equals(info.getTableDesc().getName(), getTableName())) {
           if (!(info.isOffline() || info.isSplit())) {
             startKeyList.add(info.getStartKey());
@@ -547,7 +555,10 @@ public class HTable implements HTableInterface {
   }
 
   /**
-   * Method that does a batch call on Deletes, Gets and Puts.
+   * Method that does a batch call on Deletes, Gets and Puts.  The ordering of
+   * execution of the actions is not defined. Meaning if you do a Put and a
+   * Get in the same {@link #batch} call, you will not necessarily be
+   * guaranteed that the Get returns what the Put had put.
    *
    * @param actions list of Get, Put, Delete objects
    * @param results Empty Result[], same size as actions. Provides access to partial
@@ -562,7 +573,7 @@ public class HTable implements HTableInterface {
 
   /**
    * Method that does a batch call on Deletes, Gets and Puts.
-   * 
+   *
    * @param actions list of Get, Put, Delete objects
    * @return the results from the actions. A null in the return array means that
    * the call for that action failed, even after retries
@@ -577,7 +588,7 @@ public class HTable implements HTableInterface {
 
   /**
    * Deletes the specified cells/row.
-   * 
+   *
    * @param delete The object that specifies what to delete.
    * @throws IOException if a remote or network exception occurs.
    * @since 0.20.0
@@ -598,7 +609,7 @@ public class HTable implements HTableInterface {
   /**
    * Deletes the specified cells/rows in bulk.
    * @param deletes List of things to delete. As a side effect, it will be modified:
-   * successful {@link Delete}s are removed. The ordering of the list will not change. 
+   * successful {@link Delete}s are removed. The ordering of the list will not change.
    * @throws IOException if a remote or network exception occurs. In that case
    * the {@code deletes} argument will contain the {@link Delete} instances
    * that have not be successfully applied.
@@ -1276,20 +1287,8 @@ public class HTable implements HTableInterface {
     getRegionCachePrefetch(tableName);
   }
 
-  /**
-   * Creates and returns a proxy to the CoprocessorProtocol instance running in the
-   * region containing the specified row.  The row given does not actually have
-   * to exist.  Whichever region would contain the row based on start and end keys will
-   * be used.  Note that the {@code row} parameter is also not passed to the
-   * coprocessor handler registered for this protocol, unless the {@code row}
-   * is separately passed as an argument in a proxy method call.  The parameter
-   * here is just used to locate the region used to handle the call.
-   *
-   * @param protocol The class or interface defining the remote protocol
-   * @param row The row key used to identify the remote region location
-   * @return
-   */
-  public <T extends CoprocessorProtocol> T proxy(Class<T> protocol, byte[] row) {
+  @Override
+  public <T extends CoprocessorProtocol> T coprocessorProxy(Class<T> protocol, byte[] row) {
     return (T)Proxy.newProxyInstance(this.getClass().getClassLoader(),
         new Class[]{protocol},
         new ExecRPCInvoker(configuration,
@@ -1299,29 +1298,13 @@ public class HTable implements HTableInterface {
             row));
   }
 
-  /**
-   * Invoke the passed {@link org.apache.hadoop.hbase.client.Batch.Call} against
-   * the {@link CoprocessorProtocol} instances running in the selected regions.
-   * All regions beginning with the region containing the <code>startKey</code>
-   * row, through to the region containing the <code>endKey</code> row (inclusive)
-   * will be used.  If <code>startKey</code> or <code>endKey</code> is
-   * <code>null</code>, the first and last regions in the table, respectively,
-   * will be used in the range selection.
-   *
-   * @param protocol the CoprocessorProtocol implementation to call
-   * @param startKey start region selection with region containing this row
-   * @param endKey select regions up to and including the region containing this row
-   * @param callable wraps the CoprocessorProtocol implementation method calls made per-region
-   * @param <T> CoprocessorProtocol subclass for the remote invocation
-   * @param <R> Return type for the {@link org.apache.hadoop.hbase.client.Batch.Call#call(Object)} method
-   * @return a <code>Map</code> of region names to {@link Batch.Call#call(Object)} return values
-   */
-  public <T extends CoprocessorProtocol, R> Map<byte[],R> exec(
+  @Override
+  public <T extends CoprocessorProtocol, R> Map<byte[],R> coprocessorExec(
       Class<T> protocol, byte[] startKey, byte[] endKey, Batch.Call<T,R> callable)
       throws IOException, Throwable {
 
     final Map<byte[],R> results = new TreeMap<byte[],R>(Bytes.BYTES_COMPARATOR);
-    exec(protocol, startKey, endKey, callable, new Batch.Callback<R>(){
+    coprocessorExec(protocol, startKey, endKey, callable, new Batch.Callback<R>(){
       public void update(byte[] region, byte[] row, R value) {
         results.put(region, value);
       }
@@ -1329,29 +1312,8 @@ public class HTable implements HTableInterface {
     return results;
   }
 
-  /**
-   * Invoke the passed {@link org.apache.hadoop.hbase.client.Batch.Call} against
-   * the {@link CoprocessorProtocol} instances running in the selected regions.
-   * All regions beginning with the region containing the <code>startKey</code>
-   * row, through to the region containing the <code>endKey</code> row (inclusive)
-   * will be used.  If <code>startKey</code> or <code>endKey</code> is
-   * <code>null</code>, the first and last regions in the table, respectively,
-   * will be used in the range selection.
-   *
-   * <p>
-   * For each result, the given {@link Batch.Callback#update(byte[], byte[], Object)}
-   * method will be called.
-   *</p>
-   *
-   * @param protocol the CoprocessorProtocol implementation to call
-   * @param startKey start region selection with region containing this row
-   * @param endKey select regions up to and including the region containing this row
-   * @param callable wraps the CoprocessorProtocol implementation method calls made per-region
-   * @param callback an instance upon which {@link Batch.Callback#update(byte[], byte[], Object)} with the {@link Batch.Call#call(Object)} return value for each region
-   * @param <T> CoprocessorProtocol subclass for the remote invocation
-   * @param <R> Return type for the {@link org.apache.hadoop.hbase.client.Batch.Call#call(Object)} method
-   */
-  public <T extends CoprocessorProtocol, R> void exec(
+  @Override
+  public <T extends CoprocessorProtocol, R> void coprocessorExec(
       Class<T> protocol, byte[] startKey, byte[] endKey,
       Batch.Call<T,R> callable, Batch.Callback<R> callback)
       throws IOException, Throwable {

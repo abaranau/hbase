@@ -30,8 +30,8 @@ import org.apache.hadoop.hbase.HServerInfo;
 import org.apache.hadoop.hbase.NotServingRegionException;
 import org.apache.hadoop.hbase.Stoppable;
 import org.apache.hadoop.hbase.client.Delete;
-import org.apache.hadoop.hbase.client.Exec;
-import org.apache.hadoop.hbase.client.ExecResult;
+import org.apache.hadoop.hbase.client.coprocessor.Exec;
+import org.apache.hadoop.hbase.client.coprocessor.ExecResult;
 import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.MultiAction;
 import org.apache.hadoop.hbase.client.MultiPut;
@@ -301,22 +301,27 @@ public interface HRegionInterface extends HBaseRPCProtocolVersion, Stoppable, Ab
   /**
    * Opens the specified region.
    * @param region region to open
+   * @param RegionServerStoppedException
+   * @param IOException
    */
-  public void openRegion(final HRegionInfo region);
+  public void openRegion(final HRegionInfo region) throws IOException;
 
   /**
    * Opens the specified regions.
    * @param regions regions to open
+   * @param RegionServerStoppedException
+   * @param IOException
    */
-  public void openRegions(final List<HRegionInfo> regions);
+  public void openRegions(final List<HRegionInfo> regions) throws IOException;
 
   /**
    * Closes the specified region.
    * @param region region to close
    * @return true if closing region, false if not
+   * @throws IOException
    */
   public boolean closeRegion(final HRegionInfo region)
-  throws NotServingRegionException;
+  throws IOException;
 
   // Region administrative methods
 
@@ -383,6 +388,6 @@ public interface HRegionInterface extends HBaseRPCProtocolVersion, Stoppable, Ab
    *     occurs during the invocation
    * @see org.apache.hadoop.hbase.regionserver.HRegion#registerProtocol(Class, org.apache.hadoop.hbase.ipc.CoprocessorProtocol)
    */
-  ExecResult exec(byte[] regionName, Exec call)
+  ExecResult execCoprocessor(byte[] regionName, Exec call)
       throws IOException;
 }

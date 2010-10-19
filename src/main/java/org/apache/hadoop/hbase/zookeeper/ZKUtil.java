@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
 
+import org.apache.commons.lang.StringUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
@@ -60,12 +61,12 @@ public class ZKUtil {
   private static final char ZNODE_PATH_SEPARATOR = '/';
 
   /**
-   * Creates a new connection to ZooKeeper, pulling settings and quorum config
+   * Creates a new connection to ZooKeeper, pulling settings and ensemble config
    * from the specified configuration object using methods from {@link ZKConfig}.
    *
    * Sets the connection status monitoring watcher to the specified watcher.
    *
-   * @param conf configuration to pull quorum and other settings from
+   * @param conf configuration to pull ensemble and other settings from
    * @param watcher watcher to monitor connection changes
    * @return connection to zookeeper
    * @throws IOException if unable to connect to zk or config problem
@@ -73,26 +74,26 @@ public class ZKUtil {
   public static ZooKeeper connect(Configuration conf, Watcher watcher)
   throws IOException {
     Properties properties = ZKConfig.makeZKProps(conf);
-    String quorum = ZKConfig.getZKQuorumServersString(properties);
-    return connect(conf, quorum, watcher);
+    String ensemble = ZKConfig.getZKQuorumServersString(properties);
+    return connect(conf, ensemble, watcher);
   }
 
-  public static ZooKeeper connect(Configuration conf, String quorum,
+  public static ZooKeeper connect(Configuration conf, String ensemble,
       Watcher watcher)
   throws IOException {
-    return connect(conf, quorum, watcher, "");
+    return connect(conf, ensemble, watcher, "");
   }
 
-  public static ZooKeeper connect(Configuration conf, String quorum,
+  public static ZooKeeper connect(Configuration conf, String ensemble,
       Watcher watcher, final String descriptor)
   throws IOException {
-    if(quorum == null) {
-      throw new IOException("Unable to determine ZooKeeper quorum");
+    if(ensemble == null) {
+      throw new IOException("Unable to determine ZooKeeper ensemble");
     }
     int timeout = conf.getInt("zookeeper.session.timeout", 60 * 1000);
-    LOG.info(descriptor + " opening connection to ZooKeeper with quorum (" +
-      quorum + ")");
-    return new ZooKeeper(quorum, timeout, watcher);
+    LOG.debug(descriptor + " opening connection to ZooKeeper with ensemble (" +
+        ensemble + ")");
+    return new ZooKeeper(ensemble, timeout, watcher);
   }
 
   //
@@ -163,9 +164,9 @@ public class ZKUtil {
    * @return ensemble key with a name (if any)
    */
   public static String getZooKeeperClusterKey(Configuration conf, String name) {
-    String quorum = conf.get(HConstants.ZOOKEEPER_QUORUM.replaceAll(
+    String ensemble = conf.get(HConstants.ZOOKEEPER_QUORUM.replaceAll(
         "[\\t\\n\\x0B\\f\\r]", ""));
-    StringBuilder builder = new StringBuilder(quorum);
+    StringBuilder builder = new StringBuilder(ensemble);
     builder.append(":");
     builder.append(conf.get(HConstants.ZOOKEEPER_ZNODE_PARENT));
     if (name != null && !name.isEmpty()) {
@@ -193,7 +194,7 @@ public class ZKUtil {
   throws KeeperException {
     try {
       Stat s = zkw.getZooKeeper().exists(znode, zkw);
-      LOG.info(zkw.prefix("Set watcher on existing znode " + znode));
+      LOG.debug(zkw.prefix("Set watcher on existing znode " + znode));
       return s != null ? true : false;
     } catch (KeeperException e) {
       LOG.warn(zkw.prefix("Unable to set watcher on znode " + znode), e);
@@ -457,8 +458,7 @@ public class ZKUtil {
   throws KeeperException {
     try {
       byte [] data = zkw.getZooKeeper().getData(znode, null, null);
-      LOG.debug(zkw.prefix("Retrieved " + data.length +
-        " bytes of data from znode " + znode));
+      logRetrievedMsg(zkw, znode, data, false);
       return data;
     } catch (KeeperException.NoNodeException e) {
       LOG.debug(zkw.prefix("Unable to get data of znode " + znode + " " +
@@ -490,8 +490,7 @@ public class ZKUtil {
   throws KeeperException {
     try {
       byte [] data = zkw.getZooKeeper().getData(znode, zkw, null);
-      LOG.debug(zkw.prefix("Retrieved " + data.length +
-        " bytes of data from znode " + znode + " and set a watcher"));
+      logRetrievedMsg(zkw, znode, data, true);
       return data;
     } catch (KeeperException.NoNodeException e) {
       LOG.debug(zkw.prefix("Unable to get data of znode " + znode + " " +
@@ -528,8 +527,7 @@ public class ZKUtil {
   throws KeeperException {
     try {
       byte [] data = zkw.getZooKeeper().getData(znode, zkw, stat);
-      LOG.debug(zkw.prefix("Retrieved " + data.length +
-        " bytes of data from znode " + znode));
+      logRetrievedMsg(zkw, znode, data, false);
       return data;
     } catch (KeeperException.NoNodeException e) {
       LOG.debug(zkw.prefix("Unable to get data of znode " + znode + " " +
@@ -918,7 +916,7 @@ public class ZKUtil {
   public static void deleteChildrenRecursively(ZooKeeperWatcher zkw, String node)
   throws KeeperException {
     List<String> children = ZKUtil.listChildrenNoWatch(zkw, node);
-    if(!children.isEmpty()) {
+    if(children != null || !children.isEmpty()) {
       for(String child : children) {
         deleteNodeRecursively(zkw, joinZNode(node, child));
       }
@@ -1006,5 +1004,14 @@ public class ZKUtil {
     }
     socket.close();
     return res.toArray(new String[res.size()]);
+  }
+
+  private static void logRetrievedMsg(final ZooKeeperWatcher zkw,
+      final String znode, final byte [] data, final boolean watcherSet) {
+    if (!LOG.isDebugEnabled()) return;
+    LOG.debug(zkw.prefix("Retrieved " + ((data == null)? 0: data.length) +
+      " byte(s) of data from znode " + znode +
+      (watcherSet? " and set watcher; ": "; data=") +
+      (data == null? "null": StringUtils.abbreviate(Bytes.toString(data), 32))));
   }
 }

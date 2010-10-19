@@ -70,7 +70,6 @@ import org.apache.hadoop.mapred.MiniMRCluster;
 import org.apache.hadoop.security.UnixUserGroupInformation;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.zookeeper.ZooKeeper;
-
 import com.google.common.base.Preconditions;
 
 /**
@@ -84,14 +83,18 @@ import com.google.common.base.Preconditions;
  */
 public class HBaseTestingUtility {
   private final static Log LOG = LogFactory.getLog(HBaseTestingUtility.class);
-  private final Configuration conf;
+  private Configuration conf;
   private MiniZooKeeperCluster zkCluster = null;
+  /**
+   * Set if we were passed a zkCluster.  If so, we won't shutdown zk as
+   * part of general shutdown.
+   */
+  private boolean passedZkCluster = false;
   private MiniDFSCluster dfsCluster = null;
   private MiniHBaseCluster hbaseCluster = null;
   private MiniMRCluster mrCluster = null;
   // If non-null, then already a cluster running.
   private File clusterTestBuildDir = null;
-  private HBaseAdmin hbaseAdmin = null;
 
   /**
    * System property key to get test directory value.
@@ -113,6 +116,14 @@ public class HBaseTestingUtility {
   }
 
   /**
+   * Returns this classes's instance of {@link Configuration}.  Be careful how
+   * you use the returned Configuration since {@link HConnection} instances
+   * can be shared.  The Map of HConnections is keyed by the Configuration.  If
+   * say, a Connection was being used against a cluster that had been shutdown,
+   * see {@link #shutdownMiniCluster()}, then the Connection will no longer
+   * be wholesome.  Rather than use the return direct, its usually best to
+   * make a copy and use that.  Do
+   * <code>Configuration c = new Configuration(INSTANCE.getConfiguration());</code>
    * @return Instance of Configuration.
    */
   public Configuration getConfiguration() {
@@ -208,6 +219,11 @@ public class HBaseTestingUtility {
     System.setProperty("test.cache.data", this.clusterTestBuildDir.toString());
     this.dfsCluster = new MiniDFSCluster(0, this.conf, servers, true, true,
       true, null, null, null, null);
+    // Set this just-started cluser as our filesystem.
+    FileSystem fs = this.dfsCluster.getFileSystem();
+    this.conf.set("fs.defaultFS", fs.getUri().toString());
+    // Do old style too just to be safe.
+    this.conf.set("fs.default.name", fs.getUri().toString());
     return this.dfsCluster;
   }
 
@@ -237,6 +253,7 @@ public class HBaseTestingUtility {
 
   private MiniZooKeeperCluster startMiniZKCluster(final File dir)
   throws Exception {
+    this.passedZkCluster = false;
     if (this.zkCluster != null) {
       throw new IOException("Cluster already running at " + dir);
     }
@@ -267,7 +284,7 @@ public class HBaseTestingUtility {
    * @see {@link #shutdownMiniDFSCluster()}
    */
   public MiniHBaseCluster startMiniCluster() throws Exception {
-    return startMiniCluster(1);
+    return startMiniCluster(1, 1);
   }
 
   /**
@@ -275,21 +292,44 @@ public class HBaseTestingUtility {
    * Modifies Configuration.  Homes the cluster data directory under a random
    * subdirectory in a directory under System property test.build.data.
    * Directory is cleaned up on exit.
-   * @param servers Number of servers to start up.  We'll start this many
-   * datanodes and regionservers.  If servers is > 1, then make sure
+   * @param numSlaves Number of slaves to start up.  We'll start this many
+   * datanodes and regionservers.  If numSlaves is > 1, then make sure
    * hbase.regionserver.info.port is -1 (i.e. no ui per regionserver) otherwise
    * bind errors.
    * @throws Exception
    * @see {@link #shutdownMiniCluster()}
    * @return Mini hbase cluster instance created.
    */
-  public MiniHBaseCluster startMiniCluster(final int servers)
+  public MiniHBaseCluster startMiniCluster(final int numSlaves)
   throws Exception {
-    LOG.info("Starting up minicluster");
+    return startMiniCluster(1, numSlaves);
+  }
+
+  /**
+   * Start up a minicluster of hbase, optionally dfs, and zookeeper.
+   * Modifies Configuration.  Homes the cluster data directory under a random
+   * subdirectory in a directory under System property test.build.data.
+   * Directory is cleaned up on exit.
+   * @param numMasters Number of masters to start up.  We'll start this many
+   * hbase masters.  If numMasters > 1, you can find the active/primary master
+   * with {@link MiniHBaseCluster#getMaster()}.
+   * @param numSlaves Number of slaves to start up.  We'll start this many
+   * datanodes and regionservers.  If numSlaves is > 1, then make sure
+   * hbase.regionserver.info.port is -1 (i.e. no ui per regionserver) otherwise
+   * bind errors.
+   * @throws Exception
+   * @see {@link #shutdownMiniCluster()}
+   * @return Mini hbase cluster instance created.
+   */
+  public MiniHBaseCluster startMiniCluster(final int numMasters,
+      final int numSlaves)
+  throws Exception {
+    LOG.info("Starting up minicluster with " + numMasters + " master(s) and " +
+        numSlaves + " regionserver(s) and datanode(s)");
     // If we already put up a cluster, fail.
     String testBuildPath = conf.get(TEST_DIRECTORY_KEY, null);
     isRunningCluster(testBuildPath);
-    if(testBuildPath != null) {
+    if (testBuildPath != null) {
       LOG.info("Using passed path: " + testBuildPath);
     }
     // Make a new random dir to home everything in.  Set it as system property.
@@ -299,28 +339,35 @@ public class HBaseTestingUtility {
     System.setProperty(TEST_DIRECTORY_KEY, this.clusterTestBuildDir.getPath());
     // Bring up mini dfs cluster. This spews a bunch of warnings about missing
     // scheme. Complaints are 'Scheme is undefined for build/test/data/dfs/name1'.
-    startMiniDFSCluster(servers, this.clusterTestBuildDir);
-
-    // Mangle conf so fs parameter points to minidfs we just started up
-    FileSystem fs = this.dfsCluster.getFileSystem();
-    this.conf.set("fs.defaultFS", fs.getUri().toString());
-    // Do old style too just to be safe.
-    this.conf.set("fs.default.name", fs.getUri().toString());
+    startMiniDFSCluster(numSlaves, this.clusterTestBuildDir);
     this.dfsCluster.waitClusterUp();
 
     // Start up a zk cluster.
     if (this.zkCluster == null) {
       startMiniZKCluster(this.clusterTestBuildDir);
     }
+    return startMiniHBaseCluster(numMasters, numSlaves);
+  }
 
+  /**
+   * Starts up mini hbase cluster.  Usually used after call to
+   * {@link #startMiniCluster(int, int)} when doing stepped startup of clusters.
+   * Usually you won't want this.  You'll usually want {@link #startMiniCluster()}.
+   * @param numMasters
+   * @param numSlaves
+   * @return Reference to the hbase mini hbase cluster.
+   * @throws IOException
+   * @see {@link #startMiniCluster()}
+   */
+  public MiniHBaseCluster startMiniHBaseCluster(final int numMasters,
+      final int numSlaves)
+  throws IOException {
     // Now do the mini hbase cluster.  Set the hbase.rootdir in config.
-    Path hbaseRootdir = fs.makeQualified(fs.getHomeDirectory());
-    this.conf.set(HConstants.HBASE_DIR, hbaseRootdir.toString());
-    fs.mkdirs(hbaseRootdir);
-    FSUtils.setVersion(fs, hbaseRootdir);
-    this.hbaseCluster = new MiniHBaseCluster(this.conf, servers);
+    createRootDir();
+    Configuration c = new Configuration(this.conf);
+    this.hbaseCluster = new MiniHBaseCluster(c, numMasters, numSlaves);
     // Don't leave here till we've done a successful scan of the .META.
-    HTable t = new HTable(this.conf, HConstants.META_TABLE_NAME);
+    HTable t = new HTable(c, HConstants.META_TABLE_NAME);
     ResultScanner s = t.getScanner(new Scan());
     while (s.next() != null) {
       continue;
@@ -338,7 +385,7 @@ public class HBaseTestingUtility {
   public void restartHBaseCluster(int servers) throws IOException {
     this.hbaseCluster = new MiniHBaseCluster(this.conf, servers);
     // Don't leave here till we've done a successful scan of the .META.
-    HTable t = new HTable(this.conf, HConstants.META_TABLE_NAME);
+    HTable t = new HTable(new Configuration(this.conf), HConstants.META_TABLE_NAME);
     ResultScanner s = t.getScanner(new Scan());
     while (s.next() != null) {
       continue;
@@ -356,6 +403,7 @@ public class HBaseTestingUtility {
   }
 
   /**
+   * Stops mini hbase, zk, and hdfs clusters.
    * @throws IOException
    * @see {@link #startMiniCluster(int)}
    */
@@ -366,7 +414,7 @@ public class HBaseTestingUtility {
       // Wait till hbase is down before going on to shutdown zk.
       this.hbaseCluster.join();
     }
-    shutdownMiniZKCluster();
+    if (!this.passedZkCluster) shutdownMiniZKCluster();
     if (this.dfsCluster != null) {
       // The below throws an exception per dn, AsynchronousCloseException.
       this.dfsCluster.shutdown();
@@ -381,6 +429,23 @@ public class HBaseTestingUtility {
       this.clusterTestBuildDir = null;
     }
     LOG.info("Minicluster is down");
+  }
+
+  /**
+   * Creates an hbase rootdir in user home directory.  Also creates hbase
+   * version file.  Normally you won't make use of this method.  Root hbasedir
+   * is created for you as part of mini cluster startup.  You'd only use this
+   * method if you were doing manual operation.
+   * @return Fully qualified path to hbase root dir
+   * @throws IOException
+   */
+  public Path createRootDir() throws IOException {
+    FileSystem fs = FileSystem.get(this.conf);
+    Path hbaseRootdir = fs.makeQualified(fs.getHomeDirectory());
+    this.conf.set(HConstants.HBASE_DIR, hbaseRootdir.toString());
+    fs.mkdirs(hbaseRootdir);
+    FSUtils.setVersion(fs, hbaseRootdir);
+    return hbaseRootdir;
   }
 
   /**
@@ -421,12 +486,27 @@ public class HBaseTestingUtility {
    */
   public HTable createTable(byte[] tableName, byte[][] families)
   throws IOException {
+    return createTable(tableName, families,
+        new Configuration(getConfiguration()));
+  }
+
+  /**
+   * Create a table.
+   * @param tableName
+   * @param families
+   * @param c Configuration to use
+   * @return An HTable instance for the created table.
+   * @throws IOException
+   */
+  public HTable createTable(byte[] tableName, byte[][] families,
+      final Configuration c)
+  throws IOException {
     HTableDescriptor desc = new HTableDescriptor(tableName);
     for(byte[] family : families) {
       desc.addFamily(new HColumnDescriptor(family));
     }
-    (new HBaseAdmin(getConfiguration())).createTable(desc);
-    return new HTable(getConfiguration(), tableName);
+    getHBaseAdmin().createTable(desc);
+    return new HTable(c, tableName);
   }
 
   /**
@@ -464,8 +544,8 @@ public class HBaseTestingUtility {
           HColumnDescriptor.DEFAULT_REPLICATION_SCOPE);
       desc.addFamily(hcd);
     }
-    (new HBaseAdmin(getConfiguration())).createTable(desc);
-    return new HTable(getConfiguration(), tableName);
+    getHBaseAdmin().createTable(desc);
+    return new HTable(new Configuration(getConfiguration()), tableName);
   }
 
   /**
@@ -492,8 +572,8 @@ public class HBaseTestingUtility {
       desc.addFamily(hcd);
       i++;
     }
-    (new HBaseAdmin(getConfiguration())).createTable(desc);
-    return new HTable(getConfiguration(), tableName);
+    getHBaseAdmin().createTable(desc);
+    return new HTable(new Configuration(getConfiguration()), tableName);
   }
 
   /**
@@ -674,11 +754,45 @@ public class HBaseTestingUtility {
     // flush cache of regions
     HConnection conn = table.getConnection();
     conn.clearRegionCache();
-    // assign all the new regions
-    for(HRegionInfo hri : newRegions) {
-      hbaseCluster.getMaster().assignRegion(hri);
+    // assign all the new regions IF table is enabled.
+    if (getHBaseAdmin().isTableEnabled(table.getTableName())) {
+      for(HRegionInfo hri : newRegions) {
+        hbaseCluster.getMaster().assignRegion(hri);
+      }
     }
     return count;
+  }
+
+  /**
+   * Create rows in META for regions of the specified table with the specified
+   * start keys.  The first startKey should be a 0 length byte array if you
+   * want to form a proper range of regions.
+   * @param conf
+   * @param htd
+   * @param startKeys
+   * @return list of region info for regions added to meta
+   * @throws IOException
+   */
+  public List<HRegionInfo> createMultiRegionsInMeta(final Configuration conf,
+      final HTableDescriptor htd, byte [][] startKeys)
+  throws IOException {
+    HTable meta = new HTable(conf, HConstants.META_TABLE_NAME);
+    Arrays.sort(startKeys, Bytes.BYTES_COMPARATOR);
+    List<HRegionInfo> newRegions = new ArrayList<HRegionInfo>(startKeys.length);
+    // add custom ones
+    int count = 0;
+    for (int i = 0; i < startKeys.length; i++) {
+      int j = (i + 1) % startKeys.length;
+      HRegionInfo hri = new HRegionInfo(htd, startKeys[i], startKeys[j]);
+      Put put = new Put(hri.getRegionName());
+      put.add(HConstants.CATALOG_FAMILY, HConstants.REGIONINFO_QUALIFIER,
+        Writables.getBytes(hri));
+      meta.put(put);
+      LOG.info("createMultiRegionsInMeta: inserted " + hri.toString());
+      newRegions.add(hri);
+      count++;
+    }
+    return newRegions;
   }
 
   /**
@@ -687,7 +801,8 @@ public class HBaseTestingUtility {
    * @throws IOException When reading the rows fails.
    */
   public List<byte[]> getMetaTableRows() throws IOException {
-    HTable t = new HTable(this.conf, HConstants.META_TABLE_NAME);
+    // TODO: Redo using MetaReader class
+    HTable t = new HTable(new Configuration(this.conf), HConstants.META_TABLE_NAME);
     List<byte[]> rows = new ArrayList<byte[]>();
     ResultScanner s = t.getScanner(new Scan());
     for (Result result : s) {
@@ -705,7 +820,8 @@ public class HBaseTestingUtility {
    * @throws IOException When reading the rows fails.
    */
   public List<byte[]> getMetaTableRows(byte[] tableName) throws IOException {
-    HTable t = new HTable(this.conf, HConstants.META_TABLE_NAME);
+    // TODO: Redo using MetaReader.
+    HTable t = new HTable(new Configuration(this.conf), HConstants.META_TABLE_NAME);
     List<byte[]> rows = new ArrayList<byte[]>();
     ResultScanner s = t.getScanner(new Scan());
     for (Result result : s) {
@@ -819,21 +935,23 @@ public class HBaseTestingUtility {
 
   public void expireSession(ZooKeeperWatcher nodeZK, Server server)
   throws Exception {
-    String quorumServers = ZKConfig.getZKQuorumServersString(conf);
+    Configuration c = new Configuration(this.conf);
+    String quorumServers = ZKConfig.getZKQuorumServersString(c);
     int sessionTimeout = 5 * 1000; // 5 seconds
+    ZooKeeper zk = nodeZK.getZooKeeper();
+    byte[] password = zk.getSessionPasswd();
+    long sessionID = zk.getSessionId();
 
-    byte[] password = nodeZK.getZooKeeper().getSessionPasswd();
-    long sessionID = nodeZK.getZooKeeper().getSessionId();
-
-    ZooKeeper zk = new ZooKeeper(quorumServers,
+    ZooKeeper newZK = new ZooKeeper(quorumServers,
         sessionTimeout, EmptyWatcher.instance, sessionID, password);
-    zk.close();
+    newZK.close();
     final long sleep = sessionTimeout * 5L;
-    LOG.info("ZK Closed; sleeping=" + sleep);
+    LOG.info("ZK Closed Session 0x" + Long.toHexString(sessionID) +
+      "; sleeping=" + sleep);
 
     Thread.sleep(sleep);
 
-    new HTable(conf, HConstants.META_TABLE_NAME);
+    new HTable(new Configuration(conf), HConstants.META_TABLE_NAME);
   }
 
   /**
@@ -849,14 +967,11 @@ public class HBaseTestingUtility {
    * Returns a HBaseAdmin instance.
    *
    * @return The HBaseAdmin instance.
-   * @throws IOException 
+   * @throws IOException
    */
   public HBaseAdmin getHBaseAdmin()
   throws IOException {
-    if (hbaseAdmin == null) {
-      hbaseAdmin = new HBaseAdmin(getConfiguration());
-    }
-    return hbaseAdmin;
+    return new HBaseAdmin(new Configuration(getConfiguration()));
   }
 
   /**
@@ -908,6 +1023,7 @@ public class HBaseTestingUtility {
   }
 
   public void setZkCluster(MiniZooKeeperCluster zkCluster) {
+    this.passedZkCluster = true;
     this.zkCluster = zkCluster;
   }
 
@@ -939,7 +1055,7 @@ public class HBaseTestingUtility {
   /**
    * @param dir Directory to delete
    * @return True if we deleted it.
-   * @throws IOException 
+   * @throws IOException
    */
   public boolean deleteDir(final Path dir) throws IOException {
     FileSystem fs = getTestFileSystem();
@@ -951,7 +1067,7 @@ public class HBaseTestingUtility {
 
   public void waitTableAvailable(byte[] table, long timeoutMillis)
   throws InterruptedException, IOException {
-    HBaseAdmin admin = new HBaseAdmin(conf);
+    HBaseAdmin admin = getHBaseAdmin();
     long startWait = System.currentTimeMillis();
     while (!admin.isTableAvailable(table)) {
       assertTrue("Timed out waiting for table " + Bytes.toStringBinary(table),

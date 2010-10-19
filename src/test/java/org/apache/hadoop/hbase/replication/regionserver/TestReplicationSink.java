@@ -19,10 +19,14 @@
  */
 package org.apache.hadoop.hbase.replication.regionserver;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+
+import java.util.concurrent.atomic.AtomicBoolean;
+
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.KeyValue;
@@ -39,24 +43,12 @@ import org.apache.hadoop.hbase.util.Bytes;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
-import org.junit.Ignore;
 import org.junit.Test;
 
-import java.util.concurrent.atomic.AtomicBoolean;
-
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-
-public class DISABLEDTestReplicationSink {
-
-  private static final Log LOG =
-      LogFactory.getLog(DISABLEDTestReplicationSink.class);
-
+public class TestReplicationSink {
+  private static final Log LOG = LogFactory.getLog(TestReplicationSink.class);
   private static final int BATCH_SIZE = 10;
-
   private static final long SLEEP_TIME = 500;
-
-  private final static Configuration conf = HBaseConfiguration.create();
 
   private final static HBaseTestingUtility TEST_UTIL =
       new HBaseTestingUtility();
@@ -96,11 +88,10 @@ public class DISABLEDTestReplicationSink {
   @BeforeClass
   public static void setUpBeforeClass() throws Exception {
     TEST_UTIL.getConfiguration().setBoolean("dfs.support.append", true);
-    TEST_UTIL.getConfiguration().setBoolean(
-        HConstants.REPLICATION_ENABLE_KEY, true);
+    TEST_UTIL.getConfiguration().setBoolean(HConstants.REPLICATION_ENABLE_KEY, true);
     TEST_UTIL.startMiniCluster(3);
-    conf.setBoolean("dfs.support.append", true);
-    SINK = new ReplicationSink(conf, STOPPABLE);
+    SINK =
+      new ReplicationSink(new Configuration(TEST_UTIL.getConfiguration()), STOPPABLE);
     table1 = TEST_UTIL.createTable(TABLE_NAME1, FAM_NAME1);
     table2 = TEST_UTIL.createTable(TABLE_NAME2, FAM_NAME2);
   }
@@ -128,7 +119,7 @@ public class DISABLEDTestReplicationSink {
    * Insert a whole batch of entries
    * @throws Exception
    */
-  @Ignore @Test
+  @Test
   public void testBatchSink() throws Exception {
     HLog.Entry[] entries = new HLog.Entry[BATCH_SIZE];
     for(int i = 0; i < BATCH_SIZE; i++) {
@@ -144,7 +135,7 @@ public class DISABLEDTestReplicationSink {
    * Insert a mix of puts and deletes
    * @throws Exception
    */
-  @Ignore @Test
+  @Test
   public void testMixedPutDelete() throws Exception {
     HLog.Entry[] entries = new HLog.Entry[BATCH_SIZE/2];
     for(int i = 0; i < BATCH_SIZE/2; i++) {
@@ -168,7 +159,7 @@ public class DISABLEDTestReplicationSink {
    * Insert to 2 different tables
    * @throws Exception
    */
-  @Ignore @Test
+  @Test
   public void testMixedPutTables() throws Exception {
     HLog.Entry[] entries = new HLog.Entry[BATCH_SIZE];
     for(int i = 0; i < BATCH_SIZE; i++) {
@@ -189,7 +180,7 @@ public class DISABLEDTestReplicationSink {
    * Insert then do different types of deletes
    * @throws Exception
    */
-  @Ignore @Test
+  @Test
   public void testMixedDeletes() throws Exception {
     HLog.Entry[] entries = new HLog.Entry[3];
     for(int i = 0; i < 3; i++) {
@@ -214,7 +205,7 @@ public class DISABLEDTestReplicationSink {
    * before the actual Put that creates it.
    * @throws Exception
    */
-  @Ignore @Test
+  @Test
   public void testApplyDeleteBeforePut() throws Exception {
     HLog.Entry[] entries = new HLog.Entry[5];
     for(int i = 0; i < 2; i++) {

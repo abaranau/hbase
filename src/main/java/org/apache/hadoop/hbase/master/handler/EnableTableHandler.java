@@ -67,6 +67,10 @@ public class EnableTableHandler extends EventHandler {
   }
 
   private void handleEnableTable() throws IOException {
+    if (!this.assignmentManager.isTableDisabled(this.tableNameStr)) {
+      LOG.info("Table " + tableNameStr + " is not disabled; skipping enable");
+      return;
+    }
     // Get the regions of this table
     List<HRegionInfo> regions = MetaReader.getTableRegions(this.ct, tableName);
     // Set the table as disabled so it doesn't get re-onlined
@@ -74,6 +78,10 @@ public class EnableTableHandler extends EventHandler {
     // Verify all regions of table are disabled
     for (HRegionInfo region : regions) {
       assignmentManager.assign(region);
+    }
+    // Wait on table's regions to clear region in transition.
+    for (HRegionInfo region: regions) {
+      this.assignmentManager.waitOnRegionToClearRegionsInTransition(region);
     }
   }
 }

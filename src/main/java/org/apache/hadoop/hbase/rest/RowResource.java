@@ -21,7 +21,6 @@
 package org.apache.hadoop.hbase.rest;
 
 import java.io.IOException;
-import java.net.URLDecoder;
 import java.util.List;
 
 import javax.ws.rs.Consumes;
@@ -31,7 +30,6 @@ import javax.ws.rs.POST;
 import javax.ws.rs.PUT;
 import javax.ws.rs.Produces;
 import javax.ws.rs.WebApplicationException;
-import javax.ws.rs.core.CacheControl;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.Response;
@@ -57,7 +55,6 @@ public class RowResource extends ResourceBase {
 
   String tableName;
   RowSpec rowspec;
-  CacheControl cacheControl;
 
   /**
    * Constructor
@@ -70,14 +67,14 @@ public class RowResource extends ResourceBase {
       throws IOException {
     super();
     this.tableName = table;
-    this.rowspec = new RowSpec(URLDecoder.decode(rowspec,
-      HConstants.UTF8_ENCODING));
+    this.rowspec = new RowSpec(rowspec);
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("new RowResource: table=" + this.tableName + "rowspec=" +
+        this.rowspec);
+    }
     if (versions != null) {
       this.rowspec.setMaxVersions(Integer.valueOf(versions));
     }
-    this.cacheControl = new CacheControl();
-    this.cacheControl.setMaxAge(servlet.getMaxAge(tableName));
-    this.cacheControl.setNoTransform(false);    
   }
 
   @GET
@@ -113,9 +110,7 @@ public class RowResource extends ResourceBase {
         value = generator.next();
       } while (value != null);
       model.addRow(rowModel);
-      ResponseBuilder response = Response.ok(model);
-      response.cacheControl(cacheControl);
-      return response.build();
+      return Response.ok(model).build();
     } catch (IOException e) {
       throw new WebApplicationException(e,
                   Response.Status.SERVICE_UNAVAILABLE);
@@ -142,7 +137,6 @@ public class RowResource extends ResourceBase {
       }
       KeyValue value = generator.next();
       ResponseBuilder response = Response.ok(value.getValue());
-      response.cacheControl(cacheControl);
       response.header("X-Timestamp", value.getTimestamp());
       return response.build();
     } catch (IOException e) {

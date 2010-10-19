@@ -565,6 +565,39 @@ Release 0.21.0 - Unreleased
    HBASE-3064  Long sleeping in HConnectionManager after thread is interrupted
                (Bruno Dumon via Stack)
    HBASE-2753  Remove sorted() methods from Result now that Gets are Scans
+   HBASE-3059  TestReadWriteConsistencyControl occasionally hangs (Hairong 
+               via Ryan)
+   HBASE-2906  [rest/stargate] URI decoding in RowResource
+   HBASE-3008  Memstore.updateColumnValue passes wrong flag to heapSizeChange
+               (Causes memstore size to go negative)
+   HBASE-3089  REST tests are broken locally and up in hudson
+   HBASE-3062  ZooKeeper KeeperException$ConnectionLossException is a
+               "recoverable" exception; we should retry a while on server
+               startup at least.
+   HBASE-3074  Zookeeper test failing on hudson
+   HBASE-3089  REST tests are broken locally and up in hudson
+   HBASE-3085  TestSchemaResource broken on TRUNK up on HUDSON
+   HBASE-3080  TestAdmin hanging on hudson
+   HBASE-3063  TestThriftServer failing in TRUNK
+   HBASE-3094  Fixes for miscellaneous broken tests
+   HBASE-3060  [replication] Reenable replication on trunk with unit tests
+   HBASE-3041  [replication] ReplicationSink shouldn't kill the whole RS when
+               it fails to replicate
+   HBASE-3044  [replication] ReplicationSource won't cleanup logs if there's
+               nothing to replicate
+   HBASE-3113  Don't reassign regions if cluster is being shutdown
+   HBASE-2933  Skip EOF Errors during Log Recovery
+               (Nicolas Spiegelberg via Stack)
+   HBASE-3081  Log Splitting & Replay: Distinguish between Network IOE and
+               Parsing IOE (Nicolas Spiegelberg via Stack)
+   HBASE-3098  TestMetaReaderEditor is broken in TRUNK; hangs
+   HBASE-3110  TestReplicationSink failing in TRUNK up on Hudson
+   HBASE-3101  bin assembly doesn't include -tests or -source jars
+   HBASE-3121  [rest] Do not perform cache control when returning results
+   HBASE-2669  HCM.shutdownHook causes data loss with
+               hbase.client.write.buffer != 0
+   HBASE-2985  HRegionServer.multi() no longer calls HRegion.put(List) when 
+   	       possible
 
   IMPROVEMENTS
    HBASE-1760  Cleanup TODOs in HTable
@@ -971,6 +1004,16 @@ Release 0.21.0 - Unreleased
    HBASE-3070  Add to hbaseadmin means of shutting down a regionserver
    HBASE-2996  Fix and clean up Maven (Lars Francke via Stack)
    HBASE-2917  Reseek directly to next row (Pranav Khaitan)
+   HBASE-2907  [rest/stargate] Improve error response when trying to create a
+               scanner on a nonexistant table
+   HBASE-3092  Replace deprecated "new HBaseConfiguration(...)" calls
+               (Lars Francke)
+   HBASE-2968  No standard family filter provided (Andrey Stepachev)
+   HBASE-3088  TestAvroServer and TestThriftServer broken because use same
+               table in all tests and tests enable/disable/delete
+   HBASE-3097  Merge in hbase-1200 doc on bloomfilters into hbase book
+   HBASE-2700  Test of: Handle master failover for regions in transition
+   HBASE-3115  HBaseClient wastes 1 TCP packet per RPC
 
   NEW FEATURES
    HBASE-1961  HBase EC2 scripts
@@ -1022,6 +1065,9 @@ Release 0.21.0 - Unreleased
    HBASE-3043  'hbase-daemon.sh stop regionserver' should kill compactions
                that are in progress
                (Nicolas Spiegelberg via Stack)
+   HBASE-3073  New APIs for Result, faster implementation for some calls
+   HBASE-3053  Add ability to have multiple Masters LocalHBaseCluster for
+               test writing
 
   OPTIMIZATIONS
    HBASE-410   [testing] Speed up the test suite

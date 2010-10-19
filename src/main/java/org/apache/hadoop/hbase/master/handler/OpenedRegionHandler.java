@@ -19,6 +19,8 @@
  */
 package org.apache.hadoop.hbase.master.handler;
 
+import java.io.IOException;
+
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.HRegionInfo;
@@ -35,9 +37,7 @@ import org.apache.zookeeper.KeeperException;
  */
 public class OpenedRegionHandler extends EventHandler implements TotesHRegionInfo {
   private static final Log LOG = LogFactory.getLog(OpenedRegionHandler.class);
-
   private final AssignmentManager assignmentManager;
-  private final RegionTransitionData data;
   private final HRegionInfo regionInfo;
   private final HServerInfo serverInfo;
   private final OpenedPriority priority;
@@ -61,7 +61,6 @@ public class OpenedRegionHandler extends EventHandler implements TotesHRegionInf
       HRegionInfo regionInfo, HServerInfo serverInfo) {
     super(server, EventType.RS_ZK_REGION_OPENED);
     this.assignmentManager = assignmentManager;
-    this.data = data;
     this.regionInfo = regionInfo;
     this.serverInfo = serverInfo;
     if(regionInfo.isRootRegion()) {
@@ -87,15 +86,22 @@ public class OpenedRegionHandler extends EventHandler implements TotesHRegionInf
   public void process() {
     LOG.debug("Handling OPENED event for " + this.regionInfo.getEncodedName() +
       "; deleting unassigned node");
-    // TODO: should we check if this table was disabled and get it closed?
     // Remove region from in-memory transition and unassigned node from ZK
     try {
       ZKAssign.deleteOpenedNode(server.getZooKeeper(),
           regionInfo.getEncodedName());
     } catch (KeeperException e) {
-      server.abort("Error deleting OPENED node in ZK", e);
+      server.abort("Error deleting OPENED node in ZK for transition ZK node (" +
+          regionInfo.getEncodedName() + ")", e);
     }
     this.assignmentManager.regionOnline(regionInfo, serverInfo);
-    LOG.debug("Opened region " + regionInfo.getRegionNameAsString());
+    if (assignmentManager.isTableDisabled(
+        regionInfo.getTableDesc().getNameAsString())) {
+      LOG.debug("Opened region " + regionInfo.getRegionNameAsString() + " but "
+          + "this table is disabled, triggering close of region");
+      assignmentManager.unassign(regionInfo);
+    } else {
+      LOG.debug("Opened region " + regionInfo.getRegionNameAsString());
+    }
   }
 }

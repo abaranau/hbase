@@ -112,7 +112,7 @@ public class MultiResponse<R> implements Writable {
       for (int j = 0; j < listSize; j++) {
         Integer idx = in.readInt();
         if (idx == -1) {
-          lst.add(null); 
+          lst.add(null);
         } else {
           R r = (R) HbaseObjectWritable.readObject(in, null);
           lst.add(new Pair<Integer, R>(idx, r));

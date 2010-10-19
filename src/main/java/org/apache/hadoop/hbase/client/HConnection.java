@@ -25,24 +25,46 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.Abortable;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HRegionLocation;
 import org.apache.hadoop.hbase.HServerAddress;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.MasterNotRunningException;
 import org.apache.hadoop.hbase.ZooKeeperConnectionException;
+import org.apache.hadoop.hbase.catalog.CatalogTracker;
+import org.apache.hadoop.hbase.client.coprocessor.Batch;
 import org.apache.hadoop.hbase.ipc.CoprocessorProtocol;
 import org.apache.hadoop.hbase.ipc.HMasterInterface;
 import org.apache.hadoop.hbase.ipc.HRegionInterface;
 import org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher;
 
 /**
- * Cluster connection.
+ * Cluster connection.  Hosts a connection to the ZooKeeper ensemble and
+ * thereafter into the HBase cluster.  Knows how to locate regions out on the cluster,
+ * keeps a cache of locations and then knows how to recalibrate after they move.
  * {@link HConnectionManager} manages instances of this class.
+ *
+ * <p>HConnections are used by {@link HTable} mostly but also by
+ * {@link HBaseAdmin}, {@link CatalogTracker},
+ * and {@link ZooKeeperWatcher}.  HConnection instances can be shared.  Sharing
+ * is usually what you want because rather than each HConnection instance
+ * having to do its own discovery of regions out on the cluster, instead, all
+ * clients get to share the one cache of locations.  Sharing makes cleanup of
+ * HConnections awkward.  See {@link HConnectionManager} for cleanup
+ * discussion.
+ *
+ * @see HConnectionManager
  */
-public interface HConnection {
+public interface HConnection extends Abortable {
   /**
-   * Retrieve ZooKeeperWatcher used by the connection.
+   * @return Configuration instance being used by this HConnection instance.
+   */
+  public Configuration getConfiguration();
+
+  /**
+   * Retrieve ZooKeeperWatcher used by this connection.
    * @return ZooKeeperWatcher handle being used by the connection.
    * @throws IOException if a remote or network exception occurs
    */
@@ -240,23 +262,24 @@ public interface HConnection {
    * Parameterized batch processing, allowing varying return types for different
    * {@link Row} implementations.
    */
-  public <R> R[] processBatchCallback(List<? extends Row> list,
+  public <R> void processBatchCallback(List<? extends Row> list,
       byte[] tableName,
       ExecutorService pool,
+      R[] results,
       Batch.Callback<R> callback) throws IOException;
 
 
   /**
-   * Executes the given {@link org.apache.hadoop.hbase.client.Batch.Call} callable for each row in the
-   * given list and invokes {@link org.apache.hadoop.hbase.client.Batch.Callback#update(byte[], byte[], Object)}
+   * Executes the given {@link org.apache.hadoop.hbase.client.coprocessor.Batch.Call} callable for each row in the
+   * given list and invokes {@link org.apache.hadoop.hbase.client.coprocessor.Batch.Callback#update(byte[], byte[], Object)}
    * for each result returned.
    *
    * @param protocol the protocol interface being called
    * @param rows a list of row keys for which the callable should be invoked
    * @param tableName table name for the coprocessor invoked
    * @param pool ExecutorService used to submit the calls per row
-   * @param call instance on which to invoke {@link org.apache.hadoop.hbase.client.Batch.Call#call(Object)} for each row
-   * @param callback instance on which to invoke {@link org.apache.hadoop.hbase.client.Batch.Callback#update(byte[], byte[], Object)} for each result
+   * @param call instance on which to invoke {@link org.apache.hadoop.hbase.client.coprocessor.Batch.Call#call(Object)} for each row
+   * @param callback instance on which to invoke {@link org.apache.hadoop.hbase.client.coprocessor.Batch.Callback#update(byte[], byte[], Object)} for each result
    * @param <T> the protocol interface type
    * @param <R> the callable's return type
    * @throws IOException

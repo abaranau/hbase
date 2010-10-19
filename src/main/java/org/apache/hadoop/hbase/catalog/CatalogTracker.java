@@ -19,6 +19,7 @@
  */
 package org.apache.hadoop.hbase.catalog;
 
+import java.io.EOFException;
 import java.io.IOException;
 import java.net.ConnectException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -52,7 +53,8 @@ import org.apache.zookeeper.KeeperException;
  * the location of <code>.META.</code>  If not available in <code>-ROOT-</code>,
  * ZooKeeper is used to monitor for a new location of <code>.META.</code>.
  *
- * <p>Call {@link #start()} to start up operation.
+ * <p>Call {@link #start()} to start up operation.  Call {@link #stop()}} to
+ * interrupt waits and close up shop.
  */
 public class CatalogTracker {
   private static final Log LOG = LogFactory.getLog(CatalogTracker.class);
@@ -63,11 +65,24 @@ public class CatalogTracker {
   private final AtomicBoolean metaAvailable = new AtomicBoolean(false);
   private HServerAddress metaLocation;
   private final int defaultTimeout;
+  private boolean stopped = false;
 
   public static final byte [] ROOT_REGION =
     HRegionInfo.ROOT_REGIONINFO.getRegionName();
   public static final byte [] META_REGION =
     HRegionInfo.FIRST_META_REGIONINFO.getRegionName();
+
+  /**
+   * Constructs a catalog tracker.  Find current state of catalog tables and
+   * begin active tracking by executing {@link #start()} post construction.
+   * Does not timeout.
+   * @param connection Server connection; if problem, this connections
+   * {@link HConnection#abort(String, Throwable)} will be called.
+   * @throws IOException 
+   */
+  public CatalogTracker(final HConnection connection) throws IOException {
+    this(connection.getZooKeeperWatcher(), connection, connection);
+  }
 
   /**
    * Constructs the catalog tracker.  Find current state of catalog tables and
@@ -114,6 +129,22 @@ public class CatalogTracker {
   public void start() throws IOException, InterruptedException {
     this.rootRegionTracker.start();
     this.metaNodeTracker.start();
+    LOG.debug("Starting catalog tracker " + this);
+  }
+
+  /**
+   * Stop working.
+   * Interrupts any ongoing waits.
+   */
+  public void stop() {
+    LOG.debug("Stopping catalog tracker " + this);
+    this.stopped = true;
+    this.rootRegionTracker.stop();
+    this.metaNodeTracker.stop();
+    // Call this and it will interrupt any ongoing waits on meta.
+    synchronized (this.metaAvailable) {
+      this.metaAvailable.notifyAll();
+    }
   }
 
   /**
@@ -261,8 +292,8 @@ public class CatalogTracker {
    * @throws InterruptedException if interrupted while waiting
    */
   public void waitForMeta() throws InterruptedException {
-    synchronized(metaAvailable) {
-      while (!metaAvailable.get()) {
+    synchronized (metaAvailable) {
+      while (!stopped && !metaAvailable.get()) {
         metaAvailable.wait();
       }
     }
@@ -273,7 +304,7 @@ public class CatalogTracker {
    * for up to the specified timeout if not immediately available.  Throws an
    * exception if timed out waiting.  This method differs from {@link #waitForMeta()}
    * in that it will go ahead and verify the location gotten from ZooKeeper by
-   * trying trying to use returned connection.
+   * trying to use returned connection.
    * @param timeout maximum time to wait for meta availability, in milliseconds
    * @return location of meta
    * @throws InterruptedException if interrupted while waiting
@@ -288,7 +319,7 @@ public class CatalogTracker {
       if (getMetaServerConnection(true) != null) {
         return metaLocation;
       }
-      while(!metaAvailable.get() &&
+      while(!stopped && !metaAvailable.get() &&
           (timeout == 0 || System.currentTimeMillis() < stop)) {
         metaAvailable.wait(timeout);
       }
@@ -355,6 +386,17 @@ public class CatalogTracker {
       } else {
         throw e;
       }
+    } catch (IOException ioe) {
+      Throwable cause = ioe.getCause();
+      if (cause != null && cause instanceof EOFException) {
+        // Catch. Other end disconnected us.
+      } else if (cause != null && cause.getMessage() != null &&
+        cause.getMessage().toLowerCase().contains("connection reset")) {
+        // Catch. Connection reset.
+      } else {
+        throw ioe;
+      }
+      
     }
     return protocol;
   }
@@ -368,9 +410,6 @@ public class CatalogTracker {
     }
     Throwable t = null;
     try {
-      // Am expecting only two possible exceptions here; unable
-      // to connect to the regionserver or NotServingRegionException wrapped
-      // in the hadoop rpc RemoteException.
       return metaServer.getRegionInfo(regionName) != null;
     } catch (ConnectException e) {
       t = e;
@@ -378,6 +417,13 @@ public class CatalogTracker {
       IOException ioe = e.unwrapRemoteException();
       if (ioe instanceof NotServingRegionException) {
         t = ioe;
+      } else {
+        throw e;
+      }
+    } catch (IOException e) {
+      Throwable cause = e.getCause();
+      if (cause != null && cause instanceof EOFException) {
+        t = cause;
       } else {
         throw e;
       }
@@ -457,5 +503,9 @@ public class CatalogTracker {
 
   MetaNodeTracker getMetaNodeTracker() {
     return this.metaNodeTracker;
+  }
+
+  public HConnection getConnection() {
+    return this.connection;
   }
 }

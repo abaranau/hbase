@@ -31,14 +31,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.util.StringUtils;
 import org.apache.hadoop.hbase.Chore;
 import org.apache.hadoop.hbase.HMsg;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HServerAddress;
 import org.apache.hadoop.hbase.HServerInfo;
 import org.apache.hadoop.hbase.HServerLoad;
-import org.apache.hadoop.hbase.NotServingRegionException;
 import org.apache.hadoop.hbase.PleaseHoldException;
 import org.apache.hadoop.hbase.Server;
 import org.apache.hadoop.hbase.Stoppable;
@@ -50,6 +48,8 @@ import org.apache.hadoop.hbase.master.handler.ServerShutdownHandler;
 import org.apache.hadoop.hbase.master.metrics.MasterMetrics;
 import org.apache.hadoop.hbase.regionserver.Leases.LeaseStillHeldException;
 import org.apache.hadoop.hbase.util.Threads;
+import org.apache.hadoop.ipc.RemoteException;
+import org.apache.hadoop.util.StringUtils;
 
 /**
  * The ServerManager class manages info about region servers - HServerInfo,
@@ -153,21 +153,32 @@ public class ServerManager {
     // in, it should have been removed from serverAddressToServerInfo and queued
     // for processing by ProcessServerShutdown.
     HServerInfo info = new HServerInfo(serverInfo);
-    String hostAndPort = info.getServerAddress().toString();
+    checkIsDead(info.getServerName(), "STARTUP");
+    checkAlreadySameHostPort(info);
+    recordNewServer(info, false, null);
+  }
+
+  /**
+   * Test to see if we have a server of same host and port already.
+   * @param serverInfo
+   * @throws PleaseHoldException
+   */
+  void checkAlreadySameHostPort(final HServerInfo serverInfo)
+  throws PleaseHoldException {
+    String hostAndPort = serverInfo.getServerAddress().toString();
     HServerInfo existingServer =
-      haveServerWithSameHostAndPortAlready(info.getHostnamePort());
+      haveServerWithSameHostAndPortAlready(serverInfo.getHostnamePort());
     if (existingServer != null) {
       String message = "Server start rejected; we already have " + hostAndPort +
-        " registered; existingServer=" + existingServer + ", newServer=" + info;
+        " registered; existingServer=" + existingServer + ", newServer=" + serverInfo;
       LOG.info(message);
-      if (existingServer.getStartCode() < info.getStartCode()) {
-        LOG.info("Triggering server recovery; existingServer looks stale");
+      if (existingServer.getStartCode() < serverInfo.getStartCode()) {
+        LOG.info("Triggering server recovery; existingServer " +
+          existingServer.getServerName() + " looks stale");
         expireServer(existingServer);
       }
       throw new PleaseHoldException(message);
     }
-    checkIsDead(info.getServerName(), "STARTUP");
-    recordNewServer(info, false, null);
   }
 
   private HServerInfo haveServerWithSameHostAndPortAlready(final String hostnamePort) {
@@ -248,25 +259,24 @@ public class ServerManager {
     // If we don't know this server, tell it shutdown.
     HServerInfo storedInfo = this.onlineServers.get(info.getServerName());
     if (storedInfo == null) {
-      if (this.deadservers.contains(storedInfo)) {
-        LOG.warn("Report from deadserver " + storedInfo);
-        return HMsg.STOP_REGIONSERVER_ARRAY;
-      } else {
-        // Just let the server in.  Presume master joining a running cluster.
-        // recordNewServer is what happens at the end of reportServerStartup.
-        // The only thing we are skipping is passing back to the regionserver
-        // the HServerInfo to use.  Here we presume a master has already done
-        // that so we'll press on with whatever it gave us for HSI.
-        recordNewServer(info, true, null);
-        // If msgs, put off their processing but this is not enough because
-        // its possible that the next time the server reports in, we'll still
-        // not be up and serving.  For example, if a split, we'll need the
-        // regions and servers setup in the master before the below
-        // handleSplitReport will work.  TODO: FIx!!
-        if (msgs.length > 0) throw new PleaseHoldException("FIX! Putting off " +
+      // Maybe we already have this host+port combo and its just different
+      // start code?
+      checkAlreadySameHostPort(info);
+      // Just let the server in. Presume master joining a running cluster.
+      // recordNewServer is what happens at the end of reportServerStartup.
+      // The only thing we are skipping is passing back to the regionserver
+      // the HServerInfo to use. Here we presume a master has already done
+      // that so we'll press on with whatever it gave us for HSI.
+      recordNewServer(info, true, null);
+      // If msgs, put off their processing but this is not enough because
+      // its possible that the next time the server reports in, we'll still
+      // not be up and serving. For example, if a split, we'll need the
+      // regions and servers setup in the master before the below
+      // handleSplitReport will work. TODO: FIx!!
+      if (msgs.length > 0)
+        throw new PleaseHoldException("FIX! Putting off " +
           "message processing because not yet rwady but possible we won't be " +
           "ready next on next report");
-      }
     }
 
     // Check startcodes
@@ -496,7 +506,8 @@ public class ServerManager {
    * @param server server to open a region
    * @param region region to open
    */
-  public void sendRegionOpen(HServerInfo server, HRegionInfo region) {
+  public void sendRegionOpen(HServerInfo server, HRegionInfo region) 
+  throws IOException {
     HRegionInterface hri = getServerConnection(server);
     if (hri == null) {
       LOG.warn("Attempting to send OPEN RPC to server " + server.getServerName()
@@ -514,7 +525,8 @@ public class ServerManager {
    * @param server server to open a region
    * @param regions regions to open
    */
-  public void sendRegionOpen(HServerInfo server, List<HRegionInfo> regions) {
+  public void sendRegionOpen(HServerInfo server, List<HRegionInfo> regions)
+  throws IOException {
     HRegionInterface hri = getServerConnection(server);
     if (hri == null) {
       LOG.warn("Attempting to send OPEN RPC to server " + server.getServerName()
@@ -532,10 +544,10 @@ public class ServerManager {
    * @param server server to open a region
    * @param regionName region to open
    * @return true if server acknowledged close, false if not
-   * @throws NotServingRegionException
+   * @throws IOException
    */
   public void sendRegionClose(HServerInfo server, HRegionInfo region)
-  throws NotServingRegionException {
+  throws IOException {
     HRegionInterface hri = getServerConnection(server);
     if(hri == null) {
       LOG.warn("Attempting to send CLOSE RPC to server " +
@@ -602,6 +614,9 @@ public class ServerManager {
     return regionCount;
   }
 
+  /**
+   * @return A copy of the internal list of online servers.
+   */
   public List<HServerInfo> getOnlineServersList() {
     // TODO: optimize the load balancer call so we don't need to make a new list
     return new ArrayList<HServerInfo>(onlineServers.values());
@@ -618,5 +633,15 @@ public class ServerManager {
 
   public boolean isClusterShutdown() {
     return this.clusterShutdown;
+  }
+
+  /**
+   * Stop the ServerManager.
+   * <p>
+   * Currently just interrupts the ServerMonitor and LogCleaner chores.
+   */
+  public void stop() {
+    this.serverMonitorThread.interrupt();
+    this.logCleaner.interrupt();
   }
 }

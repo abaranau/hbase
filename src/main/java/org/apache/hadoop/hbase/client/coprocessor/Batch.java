@@ -18,7 +18,7 @@
  * limitations under the License.
  */
 
-package org.apache.hadoop.hbase.client;
+package org.apache.hadoop.hbase.client.coprocessor;
 
 import org.apache.commons.lang.reflect.MethodUtils;
 import org.apache.commons.logging.Log;
@@ -40,14 +40,14 @@ public abstract class Batch {
   private static Log LOG = LogFactory.getLog(Batch.class);
 
   /**
-   * Creates a new {@link org.apache.hadoop.hbase.client.Batch.Call} instance that invokes a method
+   * Creates a new {@link Batch.Call} instance that invokes a method
    * with the given parameters and returns the result.
    *
    * <p>
    * Note that currently the method is naively looked up using the method name
    * and class types of the passed arguments, which means that
    * <em>none of the arguments can be <code>null</code></em>.
-   * For more flexibility, see {@link Batch#returning(java.lang.reflect.Method, Object...)}.
+   * For more flexibility, see {@link Batch#forMethod(java.lang.reflect.Method, Object...)}.
    * </p>
    *
    * @param protocol the protocol class being called
@@ -58,9 +58,10 @@ public abstract class Batch {
    * @return a {@code Callable} instance that will invoke the given method and return the results
    * @throws NoSuchMethodException if the method named, with the given argument
    *     types, cannot be found in the protocol class
-   * @see Batch#returning(java.lang.reflect.Method, Object...)
+   * @see Batch#forMethod(java.lang.reflect.Method, Object...)
+   * @see org.apache.hadoop.hbase.client.HTable#coprocessorExec(Class, byte[], byte[], org.apache.hadoop.hbase.client.coprocessor.Batch.Call, org.apache.hadoop.hbase.client.coprocessor.Batch.Callback)
    */
-  public static <T extends CoprocessorProtocol,R> Call<T,R> returning(
+  public static <T extends CoprocessorProtocol,R> Call<T,R> forMethod(
       final Class<T> protocol, final String method, final Object... args)
   throws NoSuchMethodException {
     Class[] types = new Class[args.length];
@@ -77,11 +78,11 @@ public abstract class Batch {
     }
 
     m.setAccessible(true);
-    return Batch.returning(m, args);
+    return forMethod(m, args);
   }
 
   /**
-   * Creates a new {@link org.apache.hadoop.hbase.client.Batch.Call} instance that invokes a method
+   * Creates a new {@link Batch.Call} instance that invokes a method
    * with the given parameters and returns the result.
    *
    * @param method the method reference to invoke
@@ -89,8 +90,9 @@ public abstract class Batch {
    * @param <T> the class type of the protocol implementation being invoked
    * @param <R> the return type for the method call
    * @return a {@code Callable} instance that will invoke the given method and return the results
+   * @see org.apache.hadoop.hbase.client.HTable#coprocessorExec(Class, byte[], byte[], org.apache.hadoop.hbase.client.coprocessor.Batch.Call, org.apache.hadoop.hbase.client.coprocessor.Batch.Callback)
    */
-  public static <T extends CoprocessorProtocol,R> Call<T,R> returning(
+  public static <T extends CoprocessorProtocol,R> Call<T,R> forMethod(
       final Method method, final Object... args) {
     return new Call<T,R>() {
         public R call(T instance) throws IOException {
@@ -108,14 +110,10 @@ public abstract class Batch {
                 method.getName()+"'", iae);
           }
           catch (InvocationTargetException ite) {
-            IOException ioe = new IOException(ite.toString());
-            ioe.setStackTrace(ite.getStackTrace());
-            throw ioe;
+            throw new IOException(ite.toString(), ite);
           }
           catch (Throwable t) {
-            IOException ioe = new IOException(t.toString());
-            ioe.setStackTrace(t.getStackTrace());
-            throw ioe;
+            throw new IOException(t.toString(), t);
           }
         }
     };
@@ -123,19 +121,35 @@ public abstract class Batch {
 
   /**
    * Defines a unit of work to be executed.
-   * @see HTable#exec(Class, java.util.List, org.apache.hadoop.hbase.client.Batch.Call , org.apache.hadoop.hbase.client.Batch.Callback)
-   * @see HTable#exec(Class, RowRange, org.apache.hadoop.hbase.client.Batch.Call , org.apache.hadoop.hbase.client.Batch.Callback)
-   * @param <T> the instance type to be passed to {@link org.apache.hadoop.hbase.client.Batch.Call#call(Object)}
-   * @param <R> the return type from {@link org.apache.hadoop.hbase.client.Batch.Call#call(Object)}
+   *
+   * <p>
+   * When used with {@link org.apache.hadoop.hbase.client.HTable#coprocessorExec(Class, byte[], byte[], org.apache.hadoop.hbase.client.coprocessor.Batch.Call, org.apache.hadoop.hbase.client.coprocessor.Batch.Callback)}
+   * the implementations {@link Batch.Call#call(Object)} method will be invoked
+   * with a proxy to the {@link org.apache.hadoop.hbase.ipc.CoprocessorProtocol}
+   * sub-type instance.
+   * </p>
+   * @see org.apache.hadoop.hbase.client.coprocessor
+   * @see org.apache.hadoop.hbase.client.HTable#coprocessorExec(Class, byte[], byte[], org.apache.hadoop.hbase.client.coprocessor.Batch.Call)
+   * @see org.apache.hadoop.hbase.client.HTable#coprocessorExec(Class, byte[], byte[], org.apache.hadoop.hbase.client.coprocessor.Batch.Call, org.apache.hadoop.hbase.client.coprocessor.Batch.Callback)
+   * @param <T> the instance type to be passed to {@link Batch.Call#call(Object)}
+   * @param <R> the return type from {@link Batch.Call#call(Object)}
    */
   public static interface Call<T,R> {
     public R call(T instance) throws IOException;
   }
 
   /**
-   * Defines a generic callback to be triggered for each {@link org.apache.hadoop.hbase.client.Batch.Call#call(Object)}
+   * Defines a generic callback to be triggered for each {@link Batch.Call#call(Object)}
    * result.
-   * @param <R> the return type from the associated {@link org.apache.hadoop.hbase.client.Batch.Call#call(Object)}
+   *
+   * <p>
+   * When used with {@link org.apache.hadoop.hbase.client.HTable#coprocessorExec(Class, byte[], byte[], org.apache.hadoop.hbase.client.coprocessor.Batch.Call, org.apache.hadoop.hbase.client.coprocessor.Batch.Callback)},
+   * the implementation's {@link Batch.Callback#update(byte[], byte[], Object)}
+   * method will be called with the {@link Batch.Call#call(Object)} return value
+   * from each region in the selected range.
+   * </p>
+   * @param <R> the return type from the associated {@link Batch.Call#call(Object)}
+   * @see org.apache.hadoop.hbase.client.HTable#coprocessorExec(Class, byte[], byte[], org.apache.hadoop.hbase.client.coprocessor.Batch.Call, org.apache.hadoop.hbase.client.coprocessor.Batch.Callback)
    */
   public static interface Callback<R> {
     public void update(byte[] region, byte[] row, R result);
