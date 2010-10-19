@@ -592,7 +592,12 @@ Release 0.21.0 - Unreleased
                Parsing IOE (Nicolas Spiegelberg via Stack)
    HBASE-3098  TestMetaReaderEditor is broken in TRUNK; hangs
    HBASE-3110  TestReplicationSink failing in TRUNK up on Hudson
-
+   HBASE-3101  bin assembly doesn't include -tests or -source jars
+   HBASE-3121  [rest] Do not perform cache control when returning results
+   HBASE-2669  HCM.shutdownHook causes data loss with
+               hbase.client.write.buffer != 0
+   HBASE-2985  HRegionServer.multi() no longer calls HRegion.put(List) when 
+   	       possible
 
   IMPROVEMENTS
    HBASE-1760  Cleanup TODOs in HTable
@@ -1006,6 +1011,9 @@ Release 0.21.0 - Unreleased
    HBASE-2968  No standard family filter provided (Andrey Stepachev)
    HBASE-3088  TestAvroServer and TestThriftServer broken because use same
                table in all tests and tests enable/disable/delete
+   HBASE-3097  Merge in hbase-1200 doc on bloomfilters into hbase book
+   HBASE-2700  Test of: Handle master failover for regions in transition
+   HBASE-3115  HBaseClient wastes 1 TCP packet per RPC
 
   NEW FEATURES
    HBASE-1961  HBase EC2 scripts
