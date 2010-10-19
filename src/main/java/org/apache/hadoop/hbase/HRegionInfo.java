@@ -126,6 +126,11 @@ public class HRegionInfo extends VersionedWritable implements WritableComparable
     return encodedRegionName;
   }
 
+  public static void setOwnerAsCurrentUser(HRegionInfo hri)
+      throws IOException {
+    hri.tableDesc.setOwner(UserGroupInformation.getCurrentUser());
+  }
+
   /** delimiter used between portions of a region name */
   public static final int DELIMITER = ',';
 
@@ -175,22 +180,6 @@ public class HRegionInfo extends VersionedWritable implements WritableComparable
                                        regionId, false);
     this.regionNameStr = Bytes.toStringBinary(this.regionName);
     setHashCode();
-
-    if (tableDesc == HTableDescriptor.ROOT_TABLEDESC) {
-      try {
-        tableDesc.setOwnerString(UserGroupInformation.getCurrentUser().getUserName());
-      } catch (IOException ioe) {
-        LOG.debug("UGI.getCurrentUser() failed", ioe);
-      }
-    }
-
-    if (tableDesc == HTableDescriptor.META_TABLEDESC) {
-      try {
-        tableDesc.setOwnerString(UserGroupInformation.getCurrentUser().getUserName());
-      } catch (IOException ioe) {
-        LOG.debug("UGI.getCurrentUser() failed", ioe);
-      }
-    }
   }
 
   /** Default constructor - creates empty object */

@@ -168,7 +168,7 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
 
   private Thread catalogJanitorChore;
 
-  private String superuser = null;
+  private final String superuser; 
 
   /**
    * Initializes the HMaster. The steps are as follows:
@@ -207,10 +207,7 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
     HBasePolicyProvider.init(conf);
     // TODO: do we need a secret manager for digest auth?  If so need to set it in RpcServer here
 
-    this.superuser = conf.get("hbase.superuser","");
-    if (this.superuser.equals("")) {
-      this.superuser = UserGroupInformation.getCurrentUser().getUserName();
-    }
+    this.superuser = UserGroupInformation.getCurrentUser().getUserName();
 
     // set the thread name now we have an address
     setName(MASTER + "-" + this.address);
@@ -721,6 +718,10 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
     if (!isMasterRunning()) {
       throw new MasterNotRunningException();
     }
+    UserGroupInformation owner = UserGroupInformation.getCurrentUser();
+    if (desc.getOwnerString() == null || desc.getOwnerString().equals("")) {
+      desc.setOwner(owner);
+    }
     HRegionInfo [] newRegions = null;
     if(splitKeys == null || splitKeys.length == 0) {
       newRegions = new HRegionInfo [] { new HRegionInfo(desc, null, null) };
@@ -746,7 +747,6 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
       throw new IOException(e);
     }
 
-    UserGroupInformation owner = UserGroupInformation.getCurrentUser();
     createTable(newRegions, sync, owner);
   }
 

@@ -42,7 +42,6 @@ import org.apache.hadoop.hbase.regionserver.wal.HLog;
 import org.apache.hadoop.hbase.regionserver.wal.HLogSplitter;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.FSUtils;
-import org.apache.hadoop.security.UserGroupInformation;
 
 /**
  * This class abstracts a bunch of operations the HMaster needs to interact with
@@ -232,10 +231,12 @@ public class MasterFileSystem {
       // Enable after.
       HRegionInfo rootHRI = new HRegionInfo(HRegionInfo.ROOT_REGIONINFO);
       setInfoFamilyCaching(rootHRI, false);
+      HRegionInfo.setOwnerAsCurrentUser(rootHRI);
       HRegionInfo metaHRI = new HRegionInfo(HRegionInfo.FIRST_META_REGIONINFO);
       setInfoFamilyCaching(metaHRI, false);
-
-      // UserGroupInformation.getCurrentUser() vs. System.getProperty("user.name") ..?
+      HRegionInfo.setOwnerAsCurrentUser(metaHRI);
+ 
+     // UserGroupInformation.getCurrentUser() vs. System.getProperty("user.name") ..?
       HRegion root = HRegion.createHRegion(rootHRI, rd, c);
       HRegion meta = HRegion.createHRegion(metaHRI, rd, c);
       setInfoFamilyCaching(rootHRI, true);
