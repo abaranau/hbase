@@ -380,8 +380,7 @@ public class CoprocessorHost {
       Thread.currentThread().setContextClassLoader(cl);
       try {
         implClass = cl.loadClass(className);
-        load(implClass, Coprocessor.Priority.valueOf(
-            Integer.toString(priority)));
+        load(implClass, Coprocessor.Priority.SYSTEM);
         LOG.info("System coprocessor " + className + " was loaded " +
             "successfully with priority (" + priority++ + ").");
       } catch (ClassNotFoundException e) {
