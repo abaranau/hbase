@@ -51,12 +51,9 @@ public class MetaEditor {
    * @throws IOException if problem connecting or updating meta
    */
   public static void addRegionToMeta(CatalogTracker catalogTracker,
-      HRegionInfo regionInfo, UserGroupInformation owner)
+      HRegionInfo regionInfo)
   throws IOException {
     Put put = new Put(regionInfo.getRegionName());
-    if (owner != null) {
-      regionInfo.getTableDesc().setOwnerString(owner.getUserName());
-    }
     put.add(HConstants.CATALOG_FAMILY, HConstants.REGIONINFO_QUALIFIER,
         Writables.getBytes(regionInfo));
     catalogTracker.waitForMetaServerConnectionDefault().put(

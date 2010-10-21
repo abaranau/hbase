@@ -167,7 +167,7 @@ public class TableAuthManager {
 
   public boolean authorize(UserGroupInformation user, byte[] table, byte[] family,
       TablePermission.Action action) {
-    if (authorizeUser(user.getUserName(), table, family, action)) {
+    if (authorizeUser(user.getShortUserName(), table, family, action)) {
       return true;
     }
 

@@ -202,7 +202,7 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
     HBasePolicyProvider.init(conf);
     // TODO: do we need a secret manager for digest auth?  If so need to set it in RpcServer here
 
-    this.superuser = UserGroupInformation.getCurrentUser().getUserName();
+    this.superuser = UserGroupInformation.getCurrentUser().getShortUserName();
 
     // set the thread name now we have an address
     setName(MASTER + "-" + this.address);
@@ -715,7 +715,10 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
     if (!isMasterRunning()) {
       throw new MasterNotRunningException();
     }
-    UserGroupInformation owner = UserGroupInformation.getCurrentUser();
+    UserGroupInformation owner = RequestContext.getRequestUser();
+    if (owner == null) {
+      owner = UserGroupInformation.getCurrentUser();
+    }
     if (desc.getOwnerString() == null || desc.getOwnerString().equals("")) {
       desc.setOwner(owner);
     }
@@ -744,11 +747,10 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
       throw new IOException(e);
     }
 
-    UserGroupInformation owner = RequestContext.getRequestUser();
-    createTable(newRegions, sync, owner);
+    createTable(newRegions, sync);
   }
 
-  private synchronized void createTable(final HRegionInfo [] newRegions, boolean sync, UserGroupInformation owner)
+  private synchronized void createTable(final HRegionInfo [] newRegions, boolean sync)
   throws IOException {
     String tableName = newRegions[0].getTableDesc().getNameAsString();
     if(MetaReader.tableExists(catalogTracker, tableName)) {
@@ -760,7 +762,7 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
           fileSystemManager.getRootDir(), conf);
 
       // 2. Insert into META
-      MetaEditor.addRegionToMeta(catalogTracker, region.getRegionInfo(),owner);
+      MetaEditor.addRegionToMeta(catalogTracker, region.getRegionInfo());
 
       // 3. Close the new region to flush to disk.  Close log file too.
       region.close();
@@ -877,7 +879,7 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
       throw new TableNotDisabledException(tableName);
     }
     UserGroupInformation requestor = RequestContext.getRequestUser();
-    if (requestor == null || !(requestor.getUserName().equals(superuser))) {
+    if (requestor == null || !(requestor.getShortUserName().equals(superuser))) {
       throw new AccessDeniedException("You cannot modify table '"+Bytes.toString(tableName)+"' because you are not superuser");
     }
   }

@@ -704,12 +704,12 @@ public class HTableDescriptor implements WritableComparable<HTableDescriptor> {
 
 
   public void setOwner(UserGroupInformation owner) {
-    setOwnerString(owner.getUserName());
+    setOwnerString(owner.getShortUserName());
   }
 
   // used by admin.rb:alter(table_name,*args) to update owner.
-  public void setOwnerString(String owner_string) {
-    setValue(OWNER_KEY,Bytes.toBytes(owner_string));
+  public void setOwnerString(String ownerString) {
+    setValue(OWNER_KEY, Bytes.toBytes(ownerString));
   }
 
   /* doesn't work yet: needs some way to lookup

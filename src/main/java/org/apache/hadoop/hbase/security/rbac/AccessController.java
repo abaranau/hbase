@@ -139,32 +139,27 @@ public class AccessController extends BaseRegionObserver {
     // user: (see MasterFileSystem.java:bootstrap()), so that only system user
     // may write to them.  Of course, other users may be later granted write
     // access to these tables if desired.
-    UserGroupInformation user = null;
     String owner = htd.getOwnerString();
-
     if (owner == null) {
       LOG.debug("Owner of '" + htd.getNameAsString() + " is (incorrectly) null.");
     }
 
-    RequestContext ctx = RequestContext.get();
-    if (ctx != null) {
-      user = ctx.getUser();
-    }
+    UserGroupInformation user = RequestContext.getRequestUser();
     if (user == null) {
       LOG.info("No user associated with request.  Permission denied!");
       return false;
     }
 
-    if (owner.equals(user.getUserName())) {
+    if (user.getShortUserName().equals(owner)) {
       // owner of table can do anything to the table.
       if (LOG.isDebugEnabled()) {
-        LOG.debug("User '" + user.getUserName() + "' is owner: allowed to " +
+        LOG.debug("User '" + user.getShortUserName() + "' is owner: allowed to " +
           permRequest.toString() + " the table '" + htd.getNameAsString() +
           "'");
       }
       return true;
     } else if (LOG.isDebugEnabled()) {
-      LOG.debug("User '" + user.getUserName() +
+      LOG.debug("User '" + user.getShortUserName() +
         "' is not owner of the table '" + htd.getNameAsString() +
         "' (owner is : '" + owner + "')");
     }
@@ -192,7 +187,7 @@ public class AccessController extends BaseRegionObserver {
     }
 
     if (LOG.isDebugEnabled()) {
-      LOG.debug("User '" + user.getUserName() + "' is " +
+      LOG.debug("User '" + user.getShortUserName() + "' is " +
         (result ? "" : "not ") + "allowed to " +
         permRequest.toString() + " the table '" + htd.getNameAsString() +
         "'");
@@ -223,16 +218,16 @@ public class AccessController extends BaseRegionObserver {
       }
     }
 
+    this.authManager = TableAuthManager.get(
+        e.getRegionServerServices().getZooKeeperWatcher(),
+        e.getRegion().getConf());
+
     if (regionInfo.isRootRegion()) {
       if (LOG.isDebugEnabled()) {
         LOG.debug("Opening -ROOT-, no op");
       }
       return;
     }
-
-    this.authManager = TableAuthManager.get(
-        e.getRegionServerServices().getZooKeeperWatcher(),
-        e.getRegion().getConf());
 
     if (tableDesc.isMetaRegion()) {
       isMetaRegion = true;
