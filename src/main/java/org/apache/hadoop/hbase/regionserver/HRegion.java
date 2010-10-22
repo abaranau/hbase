@@ -72,6 +72,7 @@ import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.RowLock;
 import org.apache.hadoop.hbase.client.Scan;
+import org.apache.hadoop.hbase.coprocessor.CoprocessorException;
 import org.apache.hadoop.hbase.filter.Filter;
 import org.apache.hadoop.hbase.filter.IncompatibleFilterException;
 import org.apache.hadoop.hbase.io.HeapSize;
@@ -1419,6 +1420,9 @@ public class HRegion implements HeapSize { // , Writable{
 
     /** Keep track of the locks we hold so we can release them in finally clause */
     List<Integer> acquiredLocks = Lists.newArrayListWithCapacity(batchOp.operations.length);
+    // reference family maps directly so coprocessors can mutate them if desired
+    Map<byte[],List<KeyValue>>[] familyMaps =
+        new Map[batchOp.operations.length];
     // We try to set up a batch in the range [firstIndex,lastIndexExclusive)
     int firstIndex = batchOp.nextIndexToProcess;
     int lastIndexExclusive = firstIndex;
@@ -1434,9 +1438,17 @@ public class HRegion implements HeapSize { // , Writable{
         Put put = nextPair.getFirst();
         Integer providedLockId = nextPair.getSecond();
 
+        Map<byte[], List<KeyValue>> familyMap;
+        // Check any loaded coprocessors
+        /* TODO: we should catch any throws coprocessor exceptions here to allow the
+           rest of the batch to continue.  This means fixing HBASE-2898 */
+        familyMap = coprocessorHost.prePut(put.getFamilyMap());
+        // store the family map reference to allow for mutations
+        familyMaps[lastIndexExclusive] = familyMap;
+
         // Check the families in the put. If bad, skip this one.
         try {
-          checkFamilies(put.getFamilyMap().keySet());
+          checkFamilies(familyMap.keySet());
         } catch (NoSuchColumnFamilyException nscf) {
           LOG.warn("No such column family in batch put", nscf);
           batchOp.retCodes[lastIndexExclusive] = OperationStatusCode.BAD_FAMILY;
@@ -1466,8 +1478,11 @@ public class HRegion implements HeapSize { // , Writable{
       // STEP 2. Update any LATEST_TIMESTAMP timestamps
       // ----------------------------------
       for (int i = firstIndex; i < lastIndexExclusive; i++) {
+        // skip invalid
+        if (batchOp.retCodes[i] != OperationStatusCode.NOT_RUN) continue;
+
         updateKVTimestamps(
-            batchOp.operations[i].getFirst().getFamilyMap().values(),
+            familyMaps[i].values(),
             byteNow);
       }
 
@@ -1481,7 +1496,7 @@ public class HRegion implements HeapSize { // , Writable{
 
         Put p = batchOp.operations[i].getFirst();
         if (!p.getWriteToWAL()) continue;
-        addFamilyMapToWALEdit(p.getFamilyMap(), walEdit);
+        addFamilyMapToWALEdit(familyMaps[i], walEdit);
       }
 
       // Append the edit to WAL
@@ -1495,9 +1510,11 @@ public class HRegion implements HeapSize { // , Writable{
       for (int i = firstIndex; i < lastIndexExclusive; i++) {
         if (batchOp.retCodes[i] != OperationStatusCode.NOT_RUN) continue;
 
-        Put p = batchOp.operations[i].getFirst();
-        addedSize += applyFamilyMapToMemstore(p.getFamilyMap());
+        addedSize += applyFamilyMapToMemstore(familyMaps[i]);
         batchOp.retCodes[i] = OperationStatusCode.SUCCESS;
+
+        // execute any coprocessor post-hooks
+        coprocessorHost.postDelete(familyMaps[i]);
       }
       success = true;
       return addedSize;
