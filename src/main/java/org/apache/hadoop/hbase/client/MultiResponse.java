@@ -94,7 +94,8 @@ public class MultiResponse<R> implements Writable {
         } else {
           out.writeInt(r.getFirst()); // Can this can npe!?!
           R value = r.getSecond();
-          HbaseObjectWritable.writeObject(out, r.getSecond(), value.getClass(), null);
+          HbaseObjectWritable.writeObject(out, r.getSecond(),
+              value != null ? value.getClass() : Writable.class, null);
         }
       }
     }
