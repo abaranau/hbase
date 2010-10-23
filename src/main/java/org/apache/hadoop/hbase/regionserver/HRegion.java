@@ -312,7 +312,11 @@ public class HRegion implements HeapSize { // , Writable{
     this.memstoreFlushSize = flushSize;
     this.blockingMemStoreSize = this.memstoreFlushSize *
       conf.getLong("hbase.hregion.memstore.block.multiplier", 2);
-    this.coprocessorHost = new CoprocessorHost(this, rsServices, conf);
+    // don't initialize coprocessors if not running within a regionserver
+    // TODO: revisit if coprocessors should load in other cases
+    if (rsServices != null) {
+      this.coprocessorHost = new CoprocessorHost(this, rsServices, conf);
+    }
     if (LOG.isDebugEnabled()) {
       // Write out region name as string and its encoded name.
       LOG.debug("Instantiated " + this);
