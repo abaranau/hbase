@@ -1443,11 +1443,13 @@ public class HRegion implements HeapSize { // , Writable{
         Put put = nextPair.getFirst();
         Integer providedLockId = nextPair.getSecond();
 
-        Map<byte[], List<KeyValue>> familyMap;
+        Map<byte[], List<KeyValue>> familyMap = put.getFamilyMap();
         // Check any loaded coprocessors
         /* TODO: we should catch any throws coprocessor exceptions here to allow the
            rest of the batch to continue.  This means fixing HBASE-2898 */
-        familyMap = coprocessorHost.prePut(put.getFamilyMap());
+        if (coprocessorHost != null) {
+          familyMap = coprocessorHost.prePut(familyMap);
+        }
         // store the family map reference to allow for mutations
         familyMaps[lastIndexExclusive] = familyMap;
 
@@ -1519,7 +1521,9 @@ public class HRegion implements HeapSize { // , Writable{
         batchOp.retCodes[i] = OperationStatusCode.SUCCESS;
 
         // execute any coprocessor post-hooks
-        coprocessorHost.postDelete(familyMaps[i]);
+        if (coprocessorHost != null) {
+          coprocessorHost.postDelete(familyMaps[i]);
+        }
       }
       success = true;
       return addedSize;
