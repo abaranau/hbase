@@ -37,6 +37,7 @@ import org.apache.hadoop.hbase.HServerAddress;
 import org.apache.hadoop.hbase.HServerInfo;
 import org.apache.hadoop.hbase.executor.RegionTransitionData;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.Watcher;
@@ -273,6 +274,27 @@ public class ZKUtil {
       zkw.interruptedException(e);
       return null;
     }
+  }
+
+  /**
+   * List all the children of the specified znode, setting a watch for children
+   * changes and also setting a watch on every individual child in order to get
+   * the NodeCreated and NodeDeleted events.
+   * @param zkw zookeeper reference
+   * @param znode node to get children of and watch
+   * @return list of znode names, null if the node doesn't exist
+   * @throws KeeperException
+   */
+  public static List<String> listChildrenAndWatchThem(ZooKeeperWatcher zkw, 
+      String znode) throws KeeperException {
+    List<String> children = listChildrenAndWatchForNewChildren(zkw, znode);
+    if (children == null) {
+      return null;
+    }
+    for (String child : children) {
+      watchAndCheckExists(zkw, joinZNode(znode, child));
+    }
+    return children;
   }
 
   /**
@@ -786,6 +808,30 @@ public class ZKUtil {
       zkw.interruptedException(e);
       return -1;
     }
+  }
+
+  /**
+   * Async creates the specified node with the specified data.
+   *
+   * <p>Throws an exception if the node already exists.
+   *
+   * <p>The node created is persistent and open access.
+   *
+   * @param zkw zk reference
+   * @param znode path of node to create
+   * @param data data of node to create
+   * @param cb
+   * @param ctx
+   * @return version of node created
+   * @throws KeeperException if unexpected zookeeper exception
+   * @throws KeeperException.NodeExistsException if node already exists
+   */
+  public static void asyncCreate(ZooKeeperWatcher zkw,
+      String znode, byte [] data, final AsyncCallback.StringCallback cb,
+      final Object ctx)
+  throws KeeperException, KeeperException.NodeExistsException {
+    zkw.getZooKeeper().create(znode, data, Ids.OPEN_ACL_UNSAFE,
+       CreateMode.PERSISTENT, cb, ctx);
   }
 
   /**

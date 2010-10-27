@@ -26,6 +26,7 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.executor.RegionTransitionData;
 import org.apache.hadoop.hbase.executor.EventHandler.EventType;
+import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.KeeperException.Code;
 import org.apache.zookeeper.KeeperException.NoNodeException;
@@ -96,7 +97,7 @@ public class ZKAssign {
    * @param regionName region name
    * @return full path node name
    */
-  private static String getNodeName(ZooKeeperWatcher zkw, String regionName) {
+  public static String getNodeName(ZooKeeperWatcher zkw, String regionName) {
     return ZKUtil.joinZNode(zkw.assignmentZNode, regionName);
   }
 
@@ -145,6 +146,36 @@ public class ZKAssign {
       String node = getNodeName(zkw, region.getEncodedName());
       zkw.getNodes().add(node);
       ZKUtil.createAndWatch(zkw, node, data.getBytes());
+    }
+  }
+
+  /**
+   * Creates an unassigned node in the OFFLINE state for the specified region.
+   * <p>
+   * Runs asynchronously.  Depends on no pre-existing znode.
+   *
+   * <p>Sets a watcher on the unassigned region node.
+   *
+   * @param zkw zk reference
+   * @param region region to be created as offline
+   * @param serverName server event originates from
+   * @param cb
+   * @param ctx
+   * @throws KeeperException if unexpected zookeeper exception
+   * @throws KeeperException.NodeExistsException if node already exists
+   */
+  public static void asyncCreateNodeOffline(ZooKeeperWatcher zkw,
+      HRegionInfo region, String serverName,
+      final AsyncCallback.StringCallback cb, final Object ctx)
+  throws KeeperException {
+    LOG.debug(zkw.prefix("Async create of unassigned node for " +
+      region.getEncodedName() + " with OFFLINE state"));
+    RegionTransitionData data = new RegionTransitionData(
+        EventType.M_ZK_REGION_OFFLINE, region.getRegionName(), serverName);
+    synchronized(zkw.getNodes()) {
+      String node = getNodeName(zkw, region.getEncodedName());
+      zkw.getNodes().add(node);
+      ZKUtil.asyncCreate(zkw, node, data.getBytes(), cb, ctx);
     }
   }
 
@@ -208,6 +239,7 @@ public class ZKAssign {
         EventType.M_ZK_REGION_OFFLINE, region.getRegionName(), serverName);
     synchronized(zkw.getNodes()) {
       String node = getNodeName(zkw, region.getEncodedName());
+      zkw.sync(node);
       zkw.getNodes().add(node);
       int version = ZKUtil.checkExists(zkw, node);
       if(version == -1) {
@@ -349,6 +381,7 @@ public class ZKAssign {
     LOG.debug(zkw.prefix("Deleting existing unassigned " +
       "node for " + regionName + " that is in expected state " + expectedState));
     String node = getNodeName(zkw, regionName);
+    zkw.sync(node);
     Stat stat = new Stat();
     byte [] bytes = ZKUtil.getDataNoWatch(zkw, node, stat);
     if(bytes == null) {
@@ -614,6 +647,7 @@ public class ZKAssign {
     }
 
     String node = getNodeName(zkw, encoded);
+    zkw.sync(node);
 
     // Read existing data of the node
     Stat stat = new Stat();
@@ -727,5 +761,45 @@ public class ZKAssign {
       }
       Thread.sleep(200);
     }
+  }
+
+  /**
+   * Verifies that the specified region is in the specified state in ZooKeeper.
+   * <p>
+   * Returns true if region is in transition and in the specified state in
+   * ZooKeeper.  Returns false if the region does not exist in ZK or is in
+   * a different state.
+   * <p>
+   * Method synchronizes() with ZK so will yield an up-to-date result but is
+   * a slow read.
+   * @param watcher
+   * @param region
+   * @param expectedState
+   * @return true if region exists and is in expected state
+   */
+  public static boolean verifyRegionState(ZooKeeperWatcher zkw,
+      HRegionInfo region, EventType expectedState)
+  throws KeeperException {
+    String encoded = region.getEncodedName();
+
+    String node = getNodeName(zkw, encoded);
+    zkw.sync(node);
+
+    // Read existing data of the node
+    byte [] existingBytes = null;
+    try {
+      existingBytes = ZKUtil.getDataAndWatch(zkw, node);
+    } catch (KeeperException.NoNodeException nne) {
+      return false;
+    } catch (KeeperException e) {
+      throw e;
+    }
+    if (existingBytes == null) return false;
+    RegionTransitionData existingData =
+      RegionTransitionData.fromBytes(existingBytes);
+    if (existingData.getEventType() == expectedState){
+      return true;
+    }
+    return false;
   }
 }

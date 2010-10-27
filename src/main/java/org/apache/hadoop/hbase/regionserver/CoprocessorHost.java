@@ -32,7 +32,7 @@ import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.client.*;
 import org.apache.hadoop.hbase.client.coprocessor.Batch.Call;
 import org.apache.hadoop.hbase.client.coprocessor.Batch.Callback;
-import org.apache.hadoop.hbase.coprocessor.BaseCommandTarget;
+import org.apache.hadoop.hbase.coprocessor.BaseEndpoint;
 import org.apache.hadoop.hbase.coprocessor.Coprocessor;
 import org.apache.hadoop.hbase.coprocessor.RegionObserver;
 import org.apache.hadoop.hbase.coprocessor.CoprocessorEnvironment;
@@ -392,8 +392,7 @@ public class CoprocessorHost {
       Thread.currentThread().setContextClassLoader(cl);
       try {
         implClass = cl.loadClass(className);
-        load(implClass, Coprocessor.Priority.valueOf(
-            Integer.toString(priority)));
+        load(implClass, Coprocessor.Priority.SYSTEM);
         LOG.info("System coprocessor " + className + " was loaded " +
             "successfully with priority (" + priority++ + ").");
       } catch (ClassNotFoundException e) {
@@ -491,20 +490,14 @@ public class CoprocessorHost {
     // create the environment
     Environment env = new Environment(impl, priority);
 
-    // Check if it's a commandtarget.
-    // Due to current dynamic protocol design, commandtarget
+    // Check if it's an Endpoint.
+    // Due to current dynamic protocol design, Endpoint
     // uses a different way to be registered and executed.
-    // It uses a visitor pattern to invoke registered command
-    // targets.
+    // It uses a visitor pattern to invoke registered Endpoint
+    // method.
     for (Class c : implClass.getInterfaces()) {
       if (CoprocessorProtocol.class.isAssignableFrom(c)) {
         region.registerProtocol(c, (CoprocessorProtocol)o);
-
-        // if it extends BaseCommandTarget, the env will be set here.
-        if (BaseCommandTarget.class.isInstance(impl)) {
-          BaseCommandTarget bct = (BaseCommandTarget)impl;
-          bct.setEnvironment(env);
-        }
         break;
       }
     }

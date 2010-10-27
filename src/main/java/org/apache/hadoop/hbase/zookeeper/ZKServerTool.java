@@ -33,7 +33,7 @@ import org.apache.hadoop.hbase.HBaseConfiguration;
 public class ZKServerTool {
   /**
    * Run the tool.
-   * @param args Command line arguments. First arg is path to zookeepers file.
+   * @param args Command line arguments.
    */
   public static void main(String args[]) {
     Configuration conf = HBaseConfiguration.create();

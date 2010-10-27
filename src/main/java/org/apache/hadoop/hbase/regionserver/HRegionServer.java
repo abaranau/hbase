@@ -104,6 +104,7 @@ import org.apache.hadoop.hbase.regionserver.wal.HLog;
 import org.apache.hadoop.hbase.regionserver.wal.WALObserver;
 import org.apache.hadoop.hbase.replication.regionserver.Replication;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.CompressionTest;
 import org.apache.hadoop.hbase.util.FSUtils;
 import org.apache.hadoop.hbase.util.InfoServer;
 import org.apache.hadoop.hbase.util.Pair;
@@ -257,6 +258,17 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
     this.conf = conf;
     this.connection = HConnectionManager.getConnection(conf);
     this.isOnline = false;
+
+    // check to see if the codec list is available:
+    String [] codecs = conf.getStrings("hbase.regionserver.codecs", null);
+    if (codecs != null) {
+      for (String codec : codecs) {
+        if (!CompressionTest.testCompression(codec)) {
+          throw new IOException("Compression codec " + codec +
+              " not supported, aborting RS construction");
+        }
+      }
+    }
 
     // Config'ed params
     this.numRetries = conf.getInt("hbase.client.retries.number", 2);
@@ -1126,13 +1138,13 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
     // Start executor services
     this.service = new ExecutorService(getServerName());
     this.service.startExecutorService(ExecutorType.RS_OPEN_REGION,
-      conf.getInt("hbase.regionserver.executor.openregion.threads", 5));
+      conf.getInt("hbase.regionserver.executor.openregion.threads", 3));
     this.service.startExecutorService(ExecutorType.RS_OPEN_ROOT,
       conf.getInt("hbase.regionserver.executor.openroot.threads", 1));
     this.service.startExecutorService(ExecutorType.RS_OPEN_META,
       conf.getInt("hbase.regionserver.executor.openmeta.threads", 1));
     this.service.startExecutorService(ExecutorType.RS_CLOSE_REGION,
-      conf.getInt("hbase.regionserver.executor.closeregion.threads", 5));
+      conf.getInt("hbase.regionserver.executor.closeregion.threads", 3));
     this.service.startExecutorService(ExecutorType.RS_CLOSE_ROOT,
       conf.getInt("hbase.regionserver.executor.closeroot.threads", 1));
     this.service.startExecutorService(ExecutorType.RS_CLOSE_META,
@@ -2572,7 +2584,7 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
           .getConstructor(Configuration.class);
       return c.newInstance(conf2);
     } catch (Exception e) {
-      throw new RuntimeException("Failed construction of " + "Master: "
+      throw new RuntimeException("Failed construction of " + "Regionserver: "
           + regionServerClass.toString(), e);
     }
   }

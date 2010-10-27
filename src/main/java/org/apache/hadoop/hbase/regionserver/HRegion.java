@@ -72,6 +72,7 @@ import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.RowLock;
 import org.apache.hadoop.hbase.client.Scan;
+import org.apache.hadoop.hbase.coprocessor.CoprocessorException;
 import org.apache.hadoop.hbase.filter.Filter;
 import org.apache.hadoop.hbase.filter.IncompatibleFilterException;
 import org.apache.hadoop.hbase.io.HeapSize;
@@ -84,6 +85,7 @@ import org.apache.hadoop.hbase.regionserver.wal.HLogKey;
 import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.ClassSize;
+import org.apache.hadoop.hbase.util.CompressionTest;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.apache.hadoop.hbase.util.FSUtils;
 import org.apache.hadoop.hbase.util.Pair;
@@ -310,7 +312,11 @@ public class HRegion implements HeapSize { // , Writable{
     this.memstoreFlushSize = flushSize;
     this.blockingMemStoreSize = this.memstoreFlushSize *
       conf.getLong("hbase.hregion.memstore.block.multiplier", 2);
-    this.coprocessorHost = new CoprocessorHost(this, rsServices, conf);
+    // don't initialize coprocessors if not running within a regionserver
+    // TODO: revisit if coprocessors should load in other cases
+    if (rsServices != null) {
+      this.coprocessorHost = new CoprocessorHost(this, rsServices, conf);
+    }
     if (LOG.isDebugEnabled()) {
       // Write out region name as string and its encoded name.
       LOG.debug("Instantiated " + this);
@@ -1419,6 +1425,9 @@ public class HRegion implements HeapSize { // , Writable{
 
     /** Keep track of the locks we hold so we can release them in finally clause */
     List<Integer> acquiredLocks = Lists.newArrayListWithCapacity(batchOp.operations.length);
+    // reference family maps directly so coprocessors can mutate them if desired
+    Map<byte[],List<KeyValue>>[] familyMaps =
+        new Map[batchOp.operations.length];
     // We try to set up a batch in the range [firstIndex,lastIndexExclusive)
     int firstIndex = batchOp.nextIndexToProcess;
     int lastIndexExclusive = firstIndex;
@@ -1434,9 +1443,19 @@ public class HRegion implements HeapSize { // , Writable{
         Put put = nextPair.getFirst();
         Integer providedLockId = nextPair.getSecond();
 
+        Map<byte[], List<KeyValue>> familyMap = put.getFamilyMap();
+        // Check any loaded coprocessors
+        /* TODO: we should catch any throws coprocessor exceptions here to allow the
+           rest of the batch to continue.  This means fixing HBASE-2898 */
+        if (coprocessorHost != null) {
+          familyMap = coprocessorHost.prePut(familyMap);
+        }
+        // store the family map reference to allow for mutations
+        familyMaps[lastIndexExclusive] = familyMap;
+
         // Check the families in the put. If bad, skip this one.
         try {
-          checkFamilies(put.getFamilyMap().keySet());
+          checkFamilies(familyMap.keySet());
         } catch (NoSuchColumnFamilyException nscf) {
           LOG.warn("No such column family in batch put", nscf);
           batchOp.retCodes[lastIndexExclusive] = OperationStatusCode.BAD_FAMILY;
@@ -1466,8 +1485,11 @@ public class HRegion implements HeapSize { // , Writable{
       // STEP 2. Update any LATEST_TIMESTAMP timestamps
       // ----------------------------------
       for (int i = firstIndex; i < lastIndexExclusive; i++) {
+        // skip invalid
+        if (batchOp.retCodes[i] != OperationStatusCode.NOT_RUN) continue;
+
         updateKVTimestamps(
-            batchOp.operations[i].getFirst().getFamilyMap().values(),
+            familyMaps[i].values(),
             byteNow);
       }
 
@@ -1481,7 +1503,7 @@ public class HRegion implements HeapSize { // , Writable{
 
         Put p = batchOp.operations[i].getFirst();
         if (!p.getWriteToWAL()) continue;
-        addFamilyMapToWALEdit(p.getFamilyMap(), walEdit);
+        addFamilyMapToWALEdit(familyMaps[i], walEdit);
       }
 
       // Append the edit to WAL
@@ -1495,9 +1517,13 @@ public class HRegion implements HeapSize { // , Writable{
       for (int i = firstIndex; i < lastIndexExclusive; i++) {
         if (batchOp.retCodes[i] != OperationStatusCode.NOT_RUN) continue;
 
-        Put p = batchOp.operations[i].getFirst();
-        addedSize += applyFamilyMapToMemstore(p.getFamilyMap());
+        addedSize += applyFamilyMapToMemstore(familyMaps[i]);
         batchOp.retCodes[i] = OperationStatusCode.SUCCESS;
+
+        // execute any coprocessor post-hooks
+        if (coprocessorHost != null) {
+          coprocessorHost.postDelete(familyMaps[i]);
+        }
       }
       success = true;
       return addedSize;
@@ -1956,7 +1982,7 @@ public class HRegion implements HeapSize { // , Writable{
         LOG.warn("File corruption encountered!  " +
             "Continuing, but renaming " + edits + " as " + p, ioe);
       } else {
-        // other IO errors may be transient (bad network connection, 
+        // other IO errors may be transient (bad network connection,
         // checksum exception on one datanode, etc).  throw & retry
         throw ioe;
       }
@@ -2555,11 +2581,20 @@ public class HRegion implements HeapSize { // , Writable{
    */
   protected HRegion openHRegion(final Progressable reporter)
   throws IOException {
+    checkCompressionCodecs();
+
     long seqid = initialize(reporter);
     if (this.log != null) {
       this.log.setSequenceNumber(seqid);
     }
     return this;
+  }
+
+  private void checkCompressionCodecs() throws IOException {
+    for (HColumnDescriptor fam: regionInfo.getTableDesc().getColumnFamilies()) {
+      CompressionTest.testCompression(fam.getCompression());
+      CompressionTest.testCompression(fam.getCompactionCompression());
+    }
   }
 
   /**
@@ -2941,6 +2976,86 @@ public class HRegion implements HeapSize { // , Writable{
     return new Result(results);
   }
 
+  /**
+   * An optimized version of {@link #get(Get)} that checks MemStore first for
+   * the specified query.
+   * <p>
+   * This is intended for use by increment operations where we have the
+   * guarantee that versions are never inserted out-of-order so if a value
+   * exists in MemStore it is the latest value.
+   * <p>
+   * It only makes sense to use this method without a TimeRange and maxVersions
+   * equal to 1.
+   * @param get
+   * @return result
+   * @throws IOException
+   */
+  private List<KeyValue> getLastIncrement(final Get get) throws IOException {
+    InternalScan iscan = new InternalScan(get);
+
+    List<KeyValue> results = new ArrayList<KeyValue>();
+
+    // memstore scan
+    iscan.checkOnlyMemStore();
+    InternalScanner scanner = null;
+    try {
+      scanner = getScanner(iscan);
+      scanner.next(results);
+    } finally {
+      if (scanner != null)
+        scanner.close();
+    }
+
+    // count how many columns we're looking for
+    int expected = 0;
+    Map<byte[], NavigableSet<byte[]>> familyMap = get.getFamilyMap();
+    for (NavigableSet<byte[]> qfs : familyMap.values()) {
+      expected += qfs.size();
+    }
+
+    // found everything we were looking for, done
+    if (results.size() == expected) {
+      return results;
+    }
+
+    // still have more columns to find
+    if (results != null && !results.isEmpty()) {
+      // subtract what was found in memstore
+      for (KeyValue kv : results) {
+        byte [] family = kv.getFamily();
+        NavigableSet<byte[]> qfs = familyMap.get(family);
+        qfs.remove(kv.getQualifier());
+        if (qfs.isEmpty()) familyMap.remove(family);
+        expected--;
+      }
+      // make a new get for just what is left
+      Get newGet = new Get(get.getRow());
+      for (Map.Entry<byte[], NavigableSet<byte[]>> f : familyMap.entrySet()) {
+        byte [] family = f.getKey();
+        for (byte [] qualifier : f.getValue()) {
+          newGet.addColumn(family, qualifier);
+        }
+      }
+      iscan = new InternalScan(newGet);
+    }
+
+    // check store files for what is left
+    List<KeyValue> fileResults = new ArrayList<KeyValue>();
+    iscan.checkOnlyStoreFiles();
+    scanner = null;
+    try {
+      scanner = getScanner(iscan);
+      scanner.next(fileResults);
+    } finally {
+      if (scanner != null)
+        scanner.close();
+    }
+
+    // combine and return
+    results.addAll(fileResults);
+    return results;
+  }
+
   /*
    * Do a get based on the get parameter.
    * @param withCoprocessor invoke coprocessor or not. We don't want to
@@ -3009,8 +3124,8 @@ public class HRegion implements HeapSize { // , Writable{
         get.addColumn(family, qualifier);
 
         // we don't want to invoke coprocessor in this case; ICV is wrapped
-        // in HRegionServer
-        List<KeyValue> results = get(get, false);
+        // in HRegionServer, so we leave getLastIncrement alone
+        List<KeyValue> results = getLastIncrement(get);
 
         if (!results.isEmpty()) {
           KeyValue kv = results.get(0);
@@ -3019,7 +3134,7 @@ public class HRegion implements HeapSize { // , Writable{
           result += Bytes.toLong(buffer, valueOffset, Bytes.SIZEOF_LONG);
         }
 
-        // bulid the KeyValue now:
+        // build the KeyValue now:
         KeyValue newKv = new KeyValue(row, family,
             qualifier, EnvironmentEdgeManager.currentTimeMillis(),
             Bytes.toBytes(result));
@@ -3035,7 +3150,7 @@ public class HRegion implements HeapSize { // , Writable{
 
         // Now request the ICV to the store, this will set the timestamp
         // appropriately depending on if there is a value in memcache or not.
-        // returns the
+        // returns the change in the size of the memstore from operation
         long size = store.updateColumnValue(row, family, qualifier, result);
 
         size = this.memstoreSize.addAndGet(size);

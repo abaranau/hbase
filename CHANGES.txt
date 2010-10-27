@@ -597,7 +597,24 @@ Release 0.21.0 - Unreleased
    HBASE-2669  HCM.shutdownHook causes data loss with
                hbase.client.write.buffer != 0
    HBASE-2985  HRegionServer.multi() no longer calls HRegion.put(List) when 
-   	       possible
+               possible
+   HBASE-3031  CopyTable MR job named "Copy Table" in Driver
+   HBASE-2658  REST (stargate) TableRegionModel Regions need to be updated to
+               work w/ new region naming convention from HBASE-2531
+   HBASE-3140  Rest schema modification throw null pointer exception
+               (David Worms via Stack)
+   HBASE-2998  rolling-restart.sh shouldn't rely on zoo.cfg
+   HBASE-3145  importtsv fails when the line contains no data
+               (Kazuki Ohta via Todd Lipcon)
+   HBASE-2984  [shell] Altering a family shouldn't reset to default unchanged
+               attributes
+   HBASE-3143  Adding the tests' hbase-site.xml to the jar breaks some clients
+   HBASE-3139  Server shutdown processor stuck because meta not online
+   HBASE-3136  Stale reads from ZK can break the atomic CAS operations we
+               have in ZKAssign
+   HBASE-2753  Remove sorted() methods from Result now that Gets are Scans
+   HBASE-3147  Regions stuck in transition after rolling restart, perpetual
+               timeout handling but nothing happens
 
   IMPROVEMENTS
    HBASE-1760  Cleanup TODOs in HTable
@@ -1014,6 +1031,16 @@ Release 0.21.0 - Unreleased
    HBASE-3097  Merge in hbase-1200 doc on bloomfilters into hbase book
    HBASE-2700  Test of: Handle master failover for regions in transition
    HBASE-3115  HBaseClient wastes 1 TCP packet per RPC
+   HBASE-3076  Allow to disable automatic shipping of dependency jars
+               for mapreduce jobs (Bruno Dumon)
+   HBASE-3128  On assign, if ConnectException, reassign another server
+   HBASE-3133  Only log compaction requests when a request is actually added
+               to the queue
+   HBASE-3132  Print TimestampRange and BloomFilters in HFile pretty print
+   HBASE-2514  RegionServer should refuse to be assigned a region that use 
+   	       LZO when LZO isn't available
+   HBASE-3082  For ICV gets, first look in MemStore before reading StoreFiles
+               (prakash via jgray)
 
   NEW FEATURES
    HBASE-1961  HBase EC2 scripts
@@ -1068,6 +1095,7 @@ Release 0.21.0 - Unreleased
    HBASE-3073  New APIs for Result, faster implementation for some calls
    HBASE-3053  Add ability to have multiple Masters LocalHBaseCluster for
                test writing
+   HBASE-2201  JRuby shell for replication
 
   OPTIMIZATIONS
    HBASE-410   [testing] Speed up the test suite
