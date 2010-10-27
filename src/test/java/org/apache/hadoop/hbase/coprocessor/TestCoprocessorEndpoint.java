@@ -23,6 +23,7 @@ import org.apache.hadoop.hbase.*;
 import org.apache.hadoop.hbase.client.*;
 import org.apache.hadoop.hbase.client.coprocessor.*;
 import org.apache.hadoop.hbase.regionserver.InternalScanner;
+import org.apache.hadoop.hbase.regionserver.CoprocessorHost;
 import org.apache.hadoop.hbase.ipc.CoprocessorProtocol;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.JVMClusterUtil;
@@ -36,9 +37,9 @@ import java.util.Map;
 import java.io.IOException;
 
 /**
- * TestCommandTarget: test cases to verify coprocessor CommandTarget
+ * TestEndpoint: test cases to verify coprocessor Endpoint
  */
-public class TestCommandTarget {
+public class TestCoprocessorEndpoint {
   /**
    * A sample protocol for performing aggregation at regions.
    */
@@ -58,7 +59,7 @@ public class TestCommandTarget {
   /**
    * The aggregation implementation at a region.
    */
-  public static class ColumnAggregationCommandTarget extends BaseCommandTarget
+  public static class ColumnAggregationEndpoint extends BaseEndpoint
   implements ColumnAggregationProtocol {
 
     @Override
@@ -104,6 +105,7 @@ public class TestCommandTarget {
   public static void setupBeforeClass() throws Exception {
     util.startMiniCluster(2);
     cluster = util.getMiniHBaseCluster();
+
     HTable table = util.createTable(TEST_TABLE, TEST_FAMILY);
     util.createMultiRegions(util.getConfiguration(), table, TEST_FAMILY,
         new byte[][]{ HConstants.EMPTY_BYTE_ARRAY, ROWS[rowSeperator1], ROWS[rowSeperator2]});
@@ -118,10 +120,18 @@ public class TestCommandTarget {
     Thread.sleep(5000);
     for (JVMClusterUtil.RegionServerThread t : cluster.getRegionServerThreads()) {
       for (HRegionInfo r : t.getRegionServer().getOnlineRegions()) {
-        t.getRegionServer().getOnlineRegion(r.getRegionName()).
-          getCoprocessorHost().
-          load(TestCommandTarget.ColumnAggregationCommandTarget.class,
-              Coprocessor.Priority.USER);
+        // This is another ugly hack:
+        // The right way to load a cp is adding a class name to configuration
+        // and cp framework can load it automatically when region is opened.
+        // However here we have an inner class as cp which cannot be loaded
+        // by ClassLoader.
+        // Here we have to load the cp manually, and call postOpen()
+        // in order to initiate resources.
+        CoprocessorHost cph = t.getRegionServer().getOnlineRegion(r.getRegionName()).
+          getCoprocessorHost();
+        cph.load(TestCoprocessorEndpoint.ColumnAggregationEndpoint.class,
+          Coprocessor.Priority.USER);
+        cph.postOpen();
       }
     }
   }
