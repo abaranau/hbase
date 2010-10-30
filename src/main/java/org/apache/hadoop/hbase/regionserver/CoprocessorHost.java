@@ -169,6 +169,11 @@ public class CoprocessorHost {
           writeToWAL);
       }
 
+      @Override
+      public Result increment(Increment increment) throws IOException {
+        return table.increment(increment);
+      }
+
       public void flushCommits() throws IOException {
         table.flushCommits();
       }

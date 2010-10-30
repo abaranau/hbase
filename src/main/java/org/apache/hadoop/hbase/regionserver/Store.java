@@ -91,9 +91,11 @@ public class Store implements HeapSize {
   protected long ttl;
   private long majorCompactionTime;
   private int maxFilesToCompact;
+  private long lastCompactSize = 0;
   /* how many bytes to write between status checks */
   static int closeCheckInterval = 0; 
   private final long desiredMaxFileSize;
+  private final int blockingStoreFileCount;
   private volatile long storeSize = 0L;
   private final Object flushLock = new Object();
   final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
@@ -185,6 +187,8 @@ public class Store implements HeapSize {
         HConstants.DEFAULT_MAX_FILE_SIZE);
     }
     this.desiredMaxFileSize = maxFileSize;
+    this.blockingStoreFileCount =
+      conf.getInt("hbase.hstore.blockingStoreFiles", -1);
 
     this.majorCompactionTime =
       conf.getLong(HConstants.MAJOR_COMPACTION_PERIOD, 86400000);
@@ -605,6 +609,8 @@ public class Store implements HeapSize {
     boolean forceSplit = this.region.shouldSplit(false);
     boolean majorcompaction = mc;
     synchronized (compactLock) {
+      this.lastCompactSize = 0;
+
       // filesToCompact are sorted oldest to newest.
       List<StoreFile> filesToCompact = this.storefiles;
       if (filesToCompact.isEmpty()) {
@@ -688,6 +694,7 @@ public class Store implements HeapSize {
             " file(s), size: " + skipped);
         }
       }
+      this.lastCompactSize = totalSize - skipped;
 
       // Ready to go.  Have list of files to compact.
       LOG.info("Started compaction of " + filesToCompact.size() + " file(s) in " +
@@ -1255,6 +1262,11 @@ public class Store implements HeapSize {
     }
     return null;
   }
+  
+  /** @return aggregate size of all HStores used in the last compaction */
+  public long getLastCompactSize() {
+    return this.lastCompactSize;
+  }
 
   /** @return aggregate size of HStore */
   public long getSize() {
@@ -1322,6 +1334,13 @@ public class Store implements HeapSize {
     }
     return size;
   }
+  
+  /**
+   * @return The priority that this store should have in the compaction queue
+   */
+  int getCompactPriority() {
+    return this.blockingStoreFileCount - this.storefiles.size();
+  }
 
   /**
    * Datastructure that holds size and row to split a file around.
@@ -1386,6 +1405,30 @@ public class Store implements HeapSize {
     }
   }
 
+  /**
+   * Adds or replaces the specified KeyValues.
+   * <p>
+   * For each KeyValue specified, if a cell with the same row, family, and
+   * qualifier exists in MemStore, it will be replaced.  Otherwise, it will just
+   * be inserted to MemStore.
+   * <p>
+   * This operation is atomic on each KeyValue (row/family/qualifier) but not
+   * necessarily atomic across all of them.
+   * @param kvs
+   * @return memstore size delta
+   * @throws IOException
+   */
+  public long upsert(List<KeyValue> kvs)
+      throws IOException {
+    this.lock.readLock().lock();
+    try {
+      // TODO: Make this operation atomic w/ RWCC
+      return this.memstore.upsert(kvs);
+    } finally {
+      this.lock.readLock().unlock();
+    }
+  }
+
   public StoreFlusher getStoreFlusher(long cacheFlushId) {
     return new StoreFlusherImpl(cacheFlushId);
   }
@@ -1435,7 +1478,7 @@ public class Store implements HeapSize {
 
   public static final long FIXED_OVERHEAD = ClassSize.align(
       ClassSize.OBJECT + (15 * ClassSize.REFERENCE) +
-      (4 * Bytes.SIZEOF_LONG) + (3 * Bytes.SIZEOF_INT) + (Bytes.SIZEOF_BOOLEAN * 2));
+      (5 * Bytes.SIZEOF_LONG) + (3 * Bytes.SIZEOF_INT) + (Bytes.SIZEOF_BOOLEAN * 2));
 
   public static final long DEEP_OVERHEAD = ClassSize.align(FIXED_OVERHEAD +
       ClassSize.OBJECT + ClassSize.REENTRANT_LOCK +

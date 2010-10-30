@@ -615,6 +615,19 @@ Release 0.21.0 - Unreleased
    HBASE-2753  Remove sorted() methods from Result now that Gets are Scans
    HBASE-3147  Regions stuck in transition after rolling restart, perpetual
                timeout handling but nothing happens
+   HBASE-3158  Bloom File Writes Broken if keySize is large
+               (Nicolas Spiegelberg via Stack)
+   HBASE-3155  HFile.appendMetaBlock() uses wrong comparator
+               (Nicolas Spiegelberg via Stack)
+   HBASE-3012  TOF doesn't take zk client port for remote clusters
+   HBASE-3159  Double play of OpenedRegionHandler for a single region
+               and assorted fixes around this + TestRollingRestart added
+   HBASE-3160  Use more intelligent priorities for PriorityCompactionQueue
+               (Nicolas Spiegelberg via Stack)
+   HBASE-3172  Reverse order of AssignmentManager and MetaNodeTracker in
+               ZooKeeperWatcher
+   HBASE-2406  Define semantics of cell timestamps/versions
+
 
   IMPROVEMENTS
    HBASE-1760  Cleanup TODOs in HTable
@@ -1041,6 +1054,13 @@ Release 0.21.0 - Unreleased
    	       LZO when LZO isn't available
    HBASE-3082  For ICV gets, first look in MemStore before reading StoreFiles
                (prakash via jgray)
+   HBASE-3167  HBase Export: Add ability to export specific Column Family;
+               Turn Block Cache off during export; improve usage doc
+               (Kannan Muthukkaruppan via Stack)
+   HBASE-3102  Enhance HBase rMetrics for Long-running Stats
+               (Nicolas Spiegelberg via Stack)
+   HBASE-3169  NPE when master joins running cluster if a RIT references
+               a RS no longer present
 
   NEW FEATURES
    HBASE-1961  HBase EC2 scripts
@@ -1096,6 +1116,9 @@ Release 0.21.0 - Unreleased
    HBASE-3053  Add ability to have multiple Masters LocalHBaseCluster for
                test writing
    HBASE-2201  JRuby shell for replication
+   HBASE-2946  Increment multiple columns in a row at once
+   HBASE-3013  Tool to verify data in two clusters
+
 
   OPTIMIZATIONS
    HBASE-410   [testing] Speed up the test suite

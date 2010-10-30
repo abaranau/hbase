@@ -186,8 +186,6 @@ public class AssignmentManager extends ZooKeeperListener {
     // TODO: Check list of user regions and their assignments against regionservers.
     // TODO: Regions that have a null location and are not in regionsInTransitions
     // need to be handled.
-    // TODO: Regions that are on servers that are not in our online list need
-    // reassigning.
 
     // Scan META to build list of existing regions, servers, and assignment
     // Returns servers who have not checked in (assumed dead) and their regions
@@ -294,8 +292,17 @@ public class AssignmentManager extends ZooKeeperListener {
         // Region is opened, insert into RIT and handle it
         regionsInTransition.put(encodedRegionName, new RegionState(
             regionInfo, RegionState.State.OPENING, data.getStamp()));
-        new OpenedRegionHandler(master, this, data, regionInfo,
-            serverManager.getServerInfo(data.getServerName())).process();
+        HServerInfo hsi = serverManager.getServerInfo(data.getServerName());
+        // hsi could be null if this server is no longer online.  If
+        // that the case, just let this RIT timeout; it'll be assigned
+        // to new server then.
+        if (hsi == null) {
+          LOG.warn("Region in transition " + regionInfo.getEncodedName() +
+            " references a server no longer up " + data.getServerName() +
+            "; letting RIT timeout so will be assigned elsewhere");
+          break;
+        }
+        new OpenedRegionHandler(master, this, data, regionInfo, hsi).process();
         break;
       }
     }
@@ -390,6 +397,7 @@ public class AssignmentManager extends ZooKeeperListener {
             return;
           }
           // Handle OPENED by removing from transition and deleted zk node
+          regionState.update(RegionState.State.OPEN, data.getStamp());
           this.executorService.submit(
             new OpenedRegionHandler(master, this, data, regionState.getRegion(),
               this.serverManager.getServerInfo(data.getServerName())));
@@ -802,16 +810,19 @@ public class AssignmentManager extends ZooKeeperListener {
     try {
       LOG.debug("Assigning region " + state.getRegion().getRegionNameAsString() +
         " to " + plan.getDestination().getServerName());
-      // Send OPEN RPC. This can fail if the server on other end is is not up.
-      serverManager.sendRegionOpen(plan.getDestination(), state.getRegion());
       // Transition RegionState to PENDING_OPEN
       state.update(RegionState.State.PENDING_OPEN);
+      // Send OPEN RPC. This can fail if the server on other end is is not up.
+      serverManager.sendRegionOpen(plan.getDestination(), state.getRegion());
     } catch (Throwable t) {
       LOG.warn("Failed assignment of " +
         state.getRegion().getRegionNameAsString() + " to " +
         plan.getDestination() + ", trying to assign elsewhere instead", t);
       // Clean out plan we failed execute and one that doesn't look like it'll
       // succeed anyways; we need a new plan!
+      // Transition back to OFFLINE
+      state.update(RegionState.State.OFFLINE);
+      // Remove the plan
       this.regionPlans.remove(state.getRegion().getEncodedName());
       // Put in place a new plan and reassign.  Calling getRegionPlan will add
       // a plan if none exists (We removed it in line above).
@@ -982,9 +993,9 @@ public class AssignmentManager extends ZooKeeperListener {
       }
     } catch (NotServingRegionException nsre) {
       // Did not CLOSE, so set region offline and assign it
-      LOG.debug("Attempted to send CLOSE for region " +
-          region.getRegionNameAsString() + " but failed, setting region as " +
-          "OFFLINE and reassigning");
+      LOG.debug("Attempted to send CLOSE to " + regions.get(region) +
+          " for region " + region.getRegionNameAsString() + " but failed, " +
+          "setting region as OFFLINE and reassigning");
       synchronized (regionsInTransition) {
         forceRegionStateToOffline(region);
         assign(region);
@@ -994,6 +1005,7 @@ public class AssignmentManager extends ZooKeeperListener {
       // St.Ack 20101012
       // I don't think IOE can happen anymore, only NSRE IOE is used here
       // should be able to remove this at least.  jgray 20101024
+      // I lied, we actually get RemoteException wrapping our NSRE, need to unwrap
       this.master.abort("Remote unexpected exception", e);
     } catch (Throwable t) {
       // For now call abort if unexpected exception -- radical, but will get fellas attention.

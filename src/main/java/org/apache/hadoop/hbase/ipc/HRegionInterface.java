@@ -33,6 +33,7 @@ import org.apache.hadoop.hbase.client.Delete;
 import org.apache.hadoop.hbase.client.coprocessor.Exec;
 import org.apache.hadoop.hbase.client.coprocessor.ExecResult;
 import org.apache.hadoop.hbase.client.Get;
+import org.apache.hadoop.hbase.client.Increment;
 import org.apache.hadoop.hbase.client.MultiAction;
 import org.apache.hadoop.hbase.client.MultiPut;
 import org.apache.hadoop.hbase.client.MultiPutResponse;
@@ -195,6 +196,18 @@ public interface HRegionInterface extends HBaseRPCProtocolVersion, Stoppable, Ab
       byte [] family, byte [] qualifier, long amount, boolean writeToWAL)
   throws IOException;
 
+  /**
+   * Increments one or more columns values in a row.  Returns the
+   * updated keys after the increment.
+   * <p>
+   * This operation does not appear atomic to readers.  Increments are done
+   * under a row lock but readers do not take row locks.
+   * @param regionName region name
+   * @param increment increment operation
+   * @return incremented cells
+   */
+  public Result increment(byte[] regionName, Increment increment)
+  throws IOException;
 
   //
   // remote scanner interface
