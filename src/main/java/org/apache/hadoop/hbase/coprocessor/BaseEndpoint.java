@@ -27,14 +27,14 @@ import org.apache.hadoop.hbase.regionserver.HRegion;
  * Extend this class and implement related CoprocessorProtocol
  * to implement actually class running at region server.
  */
-public abstract class BaseCommandTarget implements Coprocessor,
+public abstract class BaseEndpoint implements Coprocessor,
     CoprocessorProtocol {
   private CoprocessorEnvironment env;
 
   /**
    * @param e Coprocessor environment.
    */
-  public void setEnvironment(CoprocessorEnvironment e) {
+  private void setEnvironment(CoprocessorEnvironment e) {
     env = e;
   }
 
@@ -54,7 +54,9 @@ public abstract class BaseCommandTarget implements Coprocessor,
   public void preOpen(CoprocessorEnvironment e) { }
 
   @Override
-  public void postOpen(CoprocessorEnvironment e) { }
+  public void postOpen(CoprocessorEnvironment e) {
+    setEnvironment(e);
+  }
 
   @Override
   public void preClose(CoprocessorEnvironment e, boolean abortRequested) { }

@@ -283,7 +283,7 @@
     qualified class name here. Without special reason, you should always add
     the above default log cleaners in the list.
     </description>
-  </property>  
+  </property>
   <property>
     <name>hbase.regionserver.global.memstore.upperLimit</name>
     <value>0.4</value>
@@ -564,13 +564,13 @@
     <name>hbase.coprocessor.default.classes</name>
     <value></value>
     <description>A comma-separated list of Coprocessors that are loaded by
-    default. For any override coprocessor method from RegionObservor or 
-    Coprocessor, these classes' implementation will be called 
+    default. For any override coprocessor method, these classes will be called
     in order. After implement your own
     Coprocessor, just put it in HBase's classpath and add the fully
-    qualified class name here. 
+    qualified class name here.
+    A coprocessor can also be loaded on demand by setting HTableDescriptor.
     </description>
-  </property> 
+  </property>
 
   <!--
   The following three properties are used together to create the list of

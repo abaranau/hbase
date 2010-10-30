@@ -42,7 +42,18 @@ import org.apache.hadoop.hbase.HServerAddress;
 import org.apache.hadoop.hbase.HServerInfo;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.KeyValue;
-import org.apache.hadoop.hbase.client.*;
+import org.apache.hadoop.hbase.client.Delete;
+import org.apache.hadoop.hbase.client.Get;
+import org.apache.hadoop.hbase.client.Increment;
+import org.apache.hadoop.hbase.client.MultiPut;
+import org.apache.hadoop.hbase.client.MultiPutResponse;
+import org.apache.hadoop.hbase.client.MultiAction;
+import org.apache.hadoop.hbase.client.Action;
+import org.apache.hadoop.hbase.client.MultiResponse;
+import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.client.Result;
+import org.apache.hadoop.hbase.client.Row;
+import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.client.coprocessor.Exec;
 import org.apache.hadoop.hbase.filter.BinaryComparator;
 import org.apache.hadoop.hbase.filter.ColumnCountGetFilter;
@@ -182,7 +193,7 @@ public class HbaseObjectWritable implements Writable, Configurable {
 
     addToMap(NavigableSet.class, code++);
     addToMap(ColumnPrefixFilter.class, code++);
-    
+
     // Multi
     addToMap(Row.class, code++);
     addToMap(Action.class, code++);
@@ -191,6 +202,7 @@ public class HbaseObjectWritable implements Writable, Configurable {
 
     // coprocessor execution
     addToMap(Exec.class, code++);
+    addToMap(Increment.class, code++);
   }
 
   private Class<?> declaredClass;

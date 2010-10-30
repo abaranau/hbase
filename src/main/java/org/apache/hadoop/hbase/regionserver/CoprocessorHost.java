@@ -27,7 +27,10 @@ import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.client.*;
 import org.apache.hadoop.hbase.client.coprocessor.Batch;
-import org.apache.hadoop.hbase.coprocessor.*;
+import org.apache.hadoop.hbase.coprocessor.Coprocessor;
+import org.apache.hadoop.hbase.coprocessor.CoprocessorException;
+import org.apache.hadoop.hbase.coprocessor.RegionObserver;
+import org.apache.hadoop.hbase.coprocessor.CoprocessorEnvironment;
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.hadoop.hbase.ipc.CoprocessorProtocol;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -159,6 +162,11 @@ public class CoprocessorHost {
           throws IOException {
         return table.incrementColumnValue(row, family, qualifier, amount,
           writeToWAL);
+      }
+
+      @Override
+      public Result increment(Increment increment) throws IOException {
+        return table.increment(increment);
       }
 
       public void flushCommits() throws IOException {
@@ -478,20 +486,14 @@ public class CoprocessorHost {
     // create the environment
     Environment env = new Environment(impl, priority);
 
-    // Check if it's a commandtarget.
-    // Due to current dynamic protocol design, commandtarget
+    // Check if it's an Endpoint.
+    // Due to current dynamic protocol design, Endpoint
     // uses a different way to be registered and executed.
-    // It uses a visitor pattern to invoke registered command
-    // targets.
+    // It uses a visitor pattern to invoke registered Endpoint
+    // method.
     for (Class c : implClass.getInterfaces()) {
       if (CoprocessorProtocol.class.isAssignableFrom(c)) {
         region.registerProtocol(c, (CoprocessorProtocol)o);
-
-        // if it extends BaseCommandTarget, the env will be set here.
-        if (BaseCommandTarget.class.isInstance(impl)) {
-          BaseCommandTarget bct = (BaseCommandTarget)impl;
-          bct.setEnvironment(env);
-        }
         break;
       }
     }

@@ -80,6 +80,7 @@ import org.apache.hadoop.hbase.client.coprocessor.ExecResult;
 import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.HConnection;
 import org.apache.hadoop.hbase.client.HConnectionManager;
+import org.apache.hadoop.hbase.client.Increment;
 import org.apache.hadoop.hbase.client.MultiAction;
 import org.apache.hadoop.hbase.client.MultiPut;
 import org.apache.hadoop.hbase.client.MultiPutResponse;
@@ -424,6 +425,7 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
     } catch (Throwable t) {
       // Call stop if error or process will stick around for ever since server
       // puts up non-daemon threads.
+      LOG.error("Stopping HRS because failed initialize", t);
       this.server.stop();
     }
   }
@@ -811,6 +813,7 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
       this.metrics = new RegionServerMetrics();
       startServiceThreads();
       LOG.info("Serving as " + this.serverInfo.getServerName() +
+        ", RPC listening on " + this.server.getListenerAddress() +
         ", sessionid=0x" +
         Long.toHexString(this.zooKeeper.getZooKeeper().getSessionId()));
       isOnline = true;
@@ -1110,6 +1113,9 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
       double ratio = lruBlockCache.getStats().getHitRatio();
       int percent = (int) (ratio * 100);
       this.metrics.blockCacheHitRatio.set(percent);
+      ratio = lruBlockCache.getStats().getHitCachingRatio();
+      percent = (int) (ratio * 100);
+      this.metrics.blockCacheHitCachingRatio.set(percent);
     }
   }
 
@@ -2058,7 +2064,8 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
     // force a compaction, split will be side-effect
     // TODO: flush/compact/split refactor will make it trivial to do this
     // sync/async (and won't require us to do a compaction to split!)
-    compactSplitThread.requestCompaction(region, "User-triggered split");
+    compactSplitThread.requestCompaction(region, "User-triggered split",
+        CompactSplitThread.PRIORITY_USER);
   }
 
   @Override
@@ -2068,7 +2075,8 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
     region.flushcache();
     region.shouldSplit(true);
     compactSplitThread.requestCompaction(region, major, "User-triggered "
-        + (major ? "major " : "") + "compaction");
+        + (major ? "major " : "") + "compaction",
+        CompactSplitThread.PRIORITY_USER);
   }
 
   /** @return the info server */
@@ -2331,6 +2339,26 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
     return this.serverInfo;
   }
 
+
+  @Override
+  public Result increment(byte[] regionName, Increment increment)
+  throws IOException {
+    checkOpen();
+    if (regionName == null) {
+      throw new IOException("Invalid arguments to increment " +
+      "regionName is null");
+    }
+    requestCount.incrementAndGet();
+    try {
+      HRegion region = getRegion(regionName);
+      return region.increment(increment, getLockFromId(increment.getLockId()),
+          increment.getWriteToWAL());
+    } catch (IOException e) {
+      checkFileSystem();
+      throw e;
+    }
+  }
+
   /** {@inheritDoc} */
   public long incrementColumnValue(byte[] regionName, byte[] row,
       byte[] family, byte[] qualifier, long amount, boolean writeToWAL)
@@ -2345,7 +2373,7 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
     try {
       HRegion region = getRegion(regionName);
       if (region.getCoprocessorHost() != null) {
-        amount = region.getCoprocessorHost().preIncrementColumnValue(row, 
+        amount = region.getCoprocessorHost().preIncrementColumnValue(row,
           family, qualifier, amount, writeToWAL);
       }
       long retval = region.incrementColumnValue(row, family, qualifier, amount,
