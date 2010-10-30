@@ -627,6 +627,13 @@ Release 0.21.0 - Unreleased
    HBASE-3172  Reverse order of AssignmentManager and MetaNodeTracker in
                ZooKeeperWatcher
    HBASE-2406  Define semantics of cell timestamps/versions
+   HBASE-3175  Commit of HBASE-3160 broke TestPriorityCompactionQueue up on
+               hudson (nicolas via jgray)
+   HBASE-3163  If we timeout PENDING_CLOSE and send another closeRegion RPC,
+               need to handle NSRE from RS (comes as a RemoteException)
+   HBASE-3164  Handle case where we open META, ROOT has been closed but
+               znode location not deleted yet, and try to update META
+               location in ROOT
 
 
   IMPROVEMENTS
@@ -1061,6 +1068,13 @@ Release 0.21.0 - Unreleased
                (Nicolas Spiegelberg via Stack)
    HBASE-3169  NPE when master joins running cluster if a RIT references
                a RS no longer present
+   HBASE-3174  Add ability for Get operations to enable/disable use of block
+               caching
+   HBASE-3162  Add TimeRange support into Increment to optimize for counters
+               that are partitioned on time
+   HBASE-2253  Show Block cache hit ratio for requests where
+               cacheBlocks=true
+
 
   NEW FEATURES
    HBASE-1961  HBase EC2 scripts

@@ -1108,6 +1108,9 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
       double ratio = lruBlockCache.getStats().getHitRatio();
       int percent = (int) (ratio * 100);
       this.metrics.blockCacheHitRatio.set(percent);
+      ratio = lruBlockCache.getStats().getHitCachingRatio();
+      percent = (int) (ratio * 100);
+      this.metrics.blockCacheHitCachingRatio.set(percent);
     }
   }
 
