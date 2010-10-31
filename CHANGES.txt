@@ -634,6 +634,9 @@ Release 0.21.0 - Unreleased
    HBASE-3164  Handle case where we open META, ROOT has been closed but
                znode location not deleted yet, and try to update META
                location in ROOT
+   HBASE-2006  Documentation of hbase-site.xml parameters
+   HBASE-2672  README.txt should contain basic information like how to run
+               or build HBase
 
 
   IMPROVEMENTS
@@ -1074,6 +1077,8 @@ Release 0.21.0 - Unreleased
                that are partitioned on time
    HBASE-2253  Show Block cache hit ratio for requests where
                cacheBlocks=true
+   HBASE-3126  Force use of 'mv -f' when moving aside hbase logfiles
+   HBASE-3176  Remove compile warnings in HRegionServer
 
 
   NEW FEATURES
