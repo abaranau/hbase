@@ -1043,7 +1043,19 @@ public class CoprocessorHost {
   public long preIncrementColumnValue(final byte [] row, final byte [] family,
       final byte [] qualifier, final long amount, final boolean writeToWAL)
       throws IOException {
-    return amount;
+    long retval = amount;
+    try {
+      coprocessorLock.readLock().lock();
+      for (Environment env: coprocessors) {
+        if (env.impl instanceof RegionObserver) {
+          retval = ((RegionObserver)env.impl).preIncrementColumnValue(env,
+              row, family, qualifier, retval, writeToWAL);
+        }
+      }
+    } finally {
+      coprocessorLock.readLock().unlock();
+    }
+    return retval;
   }
 
   /**
@@ -1059,7 +1071,65 @@ public class CoprocessorHost {
   public long postIncrementColumnValue(final byte [] row, final byte [] family,
       final byte [] qualifier, final long amount, final boolean writeToWAL,
       final long result) throws IOException {
-    return result;
+    long retval = result;
+    try {
+      coprocessorLock.readLock().lock();
+      for (Environment env: coprocessors) {
+        if (env.impl instanceof RegionObserver) {
+          retval = ((RegionObserver)env.impl).postIncrementColumnValue(env,
+              row, family, qualifier, amount, writeToWAL, retval);
+        }
+      }
+    } finally {
+      coprocessorLock.readLock().unlock();
+    }
+    return retval;
+  }
+
+  /**
+   * @param increment increment object
+   * @param writeToWAL whether to write the increment to the WAL
+   * @return new amount to increment
+   * @throws IOException if an error occurred on the coprocessor
+   */
+  public Increment preIncrement(Increment increment)
+      throws IOException {
+    Increment retval = increment;
+    try {
+      coprocessorLock.readLock().lock();
+      for (Environment env: coprocessors) {
+        if (env.impl instanceof RegionObserver) {
+          retval = ((RegionObserver)env.impl).preIncrement(env, retval);
+        }
+      }
+    } finally {
+      coprocessorLock.readLock().unlock();
+    }
+    return retval;
+  }
+
+  /**
+   * @param increment increment object
+   * @param writeToWAL whether to write the increment to the WAL
+   * @param result the result returned by incrementColumnValue
+   * @return the result to return to the client
+   * @throws IOException if an error occurred on the coprocessor
+   */
+  public Result postIncrement(final Increment increment, Result result)
+      throws IOException {
+    Result retval = result;
+    try {
+      coprocessorLock.readLock().lock();
+      for (Environment env: coprocessors) {
+        if (env.impl instanceof RegionObserver) {
+          retval = ((RegionObserver)env.impl).postIncrement(env, increment,
+              retval);
+        }
+      }
+    } finally {
+      coprocessorLock.readLock().unlock();
+    }
+    return retval;
   }
 
   /**

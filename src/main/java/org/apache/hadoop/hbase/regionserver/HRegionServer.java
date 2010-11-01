@@ -2343,8 +2343,17 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
     requestCount.incrementAndGet();
     try {
       HRegion region = getRegion(regionName);
-      return region.increment(increment, getLockFromId(increment.getLockId()),
+      Increment incVal = increment;
+      Result resVal;
+      if (region.getCoprocessorHost() != null) {
+        incVal = region.getCoprocessorHost().preIncrement(incVal);
+      }
+      resVal = region.increment(incVal, getLockFromId(increment.getLockId()),
           increment.getWriteToWAL());
+      if (region.getCoprocessorHost() != null) {
+        resVal = region.getCoprocessorHost().postIncrement(incVal, resVal);
+      }
+      return resVal;
     } catch (IOException e) {
       checkFileSystem();
       throw e;
@@ -2364,15 +2373,16 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
     requestCount.incrementAndGet();
     try {
       HRegion region = getRegion(regionName);
+      long amountVal = amount;
       if (region.getCoprocessorHost() != null) {
-        amount = region.getCoprocessorHost().preIncrementColumnValue(row,
-          family, qualifier, amount, writeToWAL);
+        amountVal = region.getCoprocessorHost().preIncrementColumnValue(row,
+          family, qualifier, amountVal, writeToWAL);
       }
       long retval = region.incrementColumnValue(row, family, qualifier, amount,
           writeToWAL);
       if (region.getCoprocessorHost() != null) {
         retval = region.getCoprocessorHost().postIncrementColumnValue(row,
-          family, qualifier, amount, writeToWAL, retval);
+          family, qualifier, amountVal, writeToWAL, retval);
       }
       return retval;
     } catch (IOException e) {

@@ -25,6 +25,7 @@ import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.Scan;
+import org.apache.hadoop.hbase.client.Increment;
 import org.apache.hadoop.hbase.coprocessor.CoprocessorEnvironment;
 import java.io.IOException;
 
@@ -241,6 +242,31 @@ public interface RegionObserver {
   public long postIncrementColumnValue(final CoprocessorEnvironment e,
       final byte [] row, final byte [] family, final byte [] qualifier,
       final long amount, final boolean writeToWAL, long result)
+    throws IOException;
+  
+  /**
+   * Called before incrementColumnValue
+   * @param e the environment provided by the region server
+   * @param increment increment object
+   * @param writeToWAL whether to write the increment to the WAL
+   * @return new Increment instance
+   * @throws IOException if an error occurred on the coprocessor
+   */
+  public Increment preIncrement(final CoprocessorEnvironment e,
+      Increment increment)
+    throws IOException;
+
+  /**
+   * Called after increment
+   * @param e the environment provided by the region server
+   * @param increment increment object
+   * @param writeToWAL whether to write the increment to the WAL
+   * @param result the result returned by increment
+   * @return the result to return to the client
+   * @throws IOException if an error occurred on the coprocessor
+   */
+  public Result postIncrement(final CoprocessorEnvironment e,
+      Increment increment, Result result)
     throws IOException;
 
   /**

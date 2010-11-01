@@ -22,17 +22,12 @@ package org.apache.hadoop.hbase.coprocessor;
 import org.apache.hadoop.hbase.*;
 import org.apache.hadoop.hbase.client.*;
 import org.apache.hadoop.hbase.client.coprocessor.*;
-import org.apache.hadoop.hbase.regionserver.InternalScanner;
-import org.apache.hadoop.hbase.regionserver.CoprocessorHost;
-import org.apache.hadoop.hbase.ipc.CoprocessorProtocol;
 import org.apache.hadoop.hbase.util.Bytes;
-import org.apache.hadoop.hbase.util.JVMClusterUtil;
 import org.junit.*;
+import org.apache.hadoop.conf.Configuration;
 
 import static org.junit.Assert.*;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.io.IOException;
 
@@ -40,52 +35,6 @@ import java.io.IOException;
  * TestEndpoint: test cases to verify coprocessor Endpoint
  */
 public class TestCoprocessorEndpoint {
-  /**
-   * A sample protocol for performing aggregation at regions.
-   */
-  public static interface ColumnAggregationProtocol
-  extends CoprocessorProtocol {
-    /**
-     * Perform aggregation for a given column at the region. The aggregation
-     * will include all the rows inside the region. It can be extended to
-     * allow passing start and end rows for a fine-grained aggregation.
-     * @param family family
-     * @param qualifier qualifier
-     * @return Aggregation of the column.
-     * @throws exception.
-     */
-    public int sum(byte[] family, byte[] qualifier) throws IOException;
-  }
-  /**
-   * The aggregation implementation at a region.
-   */
-  public static class ColumnAggregationEndpoint extends BaseEndpoint
-  implements ColumnAggregationProtocol {
-
-    @Override
-    public int sum(byte[] family, byte[] qualifier)
-    throws IOException {
-      // aggregate at each region
-      Scan scan = new Scan();
-      scan.addColumn(family, qualifier);
-      int sumResult = 0;
-
-      InternalScanner scanner = getEnvironment().getRegion().getScanner(scan);
-      try {
-        List<KeyValue> curVals = new ArrayList<KeyValue>();
-        boolean done = false;
-        do {
-          curVals.clear();
-          done = scanner.next(curVals);
-          KeyValue kv = curVals.get(0);
-          sumResult += Bytes.toInt(kv.getValue());
-        } while (done);
-      } finally {
-        scanner.close();
-      }
-      return sumResult;
-    }
-  }
 
   private static final byte[] TEST_TABLE = Bytes.toBytes("TestTable");
   private static final byte[] TEST_FAMILY = Bytes.toBytes("TestFamily");
@@ -97,12 +46,16 @@ public class TestCoprocessorEndpoint {
   private static final int rowSeperator2 = 12;
   private static byte [][] ROWS = makeN(ROW, ROWSIZE);
 
-
   private static HBaseTestingUtility util = new HBaseTestingUtility();
   private static MiniHBaseCluster cluster = null;
 
   @BeforeClass
   public static void setupBeforeClass() throws Exception {
+    // set configure to indicate which cp should be loaded
+    Configuration conf = util.getConfiguration();
+    conf.set("hbase.coprocessor.default.classes",
+        "org.apache.hadoop.hbase.coprocessor.ColumnAggregationEndpoint");
+
     util.startMiniCluster(2);
     cluster = util.getMiniHBaseCluster();
 
@@ -118,22 +71,6 @@ public class TestCoprocessorEndpoint {
 
     // sleep here is an ugly hack to allow region transitions to finish
     Thread.sleep(5000);
-    for (JVMClusterUtil.RegionServerThread t : cluster.getRegionServerThreads()) {
-      for (HRegionInfo r : t.getRegionServer().getOnlineRegions()) {
-        // This is another ugly hack:
-        // The right way to load a cp is adding a class name to configuration
-        // and cp framework can load it automatically when region is opened.
-        // However here we have an inner class as cp which cannot be loaded
-        // by ClassLoader.
-        // Here we have to load the cp manually, and call postOpen()
-        // in order to initiate resources.
-        CoprocessorHost cph = t.getRegionServer().getOnlineRegion(r.getRegionName()).
-          getCoprocessorHost();
-        cph.load(TestCoprocessorEndpoint.ColumnAggregationEndpoint.class,
-          Coprocessor.Priority.USER);
-        cph.postOpen();
-      }
-    }
   }
 
   @AfterClass
@@ -145,20 +82,20 @@ public class TestCoprocessorEndpoint {
   public void testAggregation() throws Throwable {
     HTable table = new HTable(util.getConfiguration(), TEST_TABLE);
     Scan scan;
-    Map<byte[], Integer> results;
+    Map<byte[], Long> results;
 
     // scan: for all regions
     results = table.coprocessorExec(ColumnAggregationProtocol.class,
         ROWS[rowSeperator1 - 1],
         ROWS[rowSeperator2 + 1],
-        new Batch.Call<ColumnAggregationProtocol,Integer>() {
-          public Integer call(ColumnAggregationProtocol instance) throws IOException{
+        new Batch.Call<ColumnAggregationProtocol,Long>() {
+          public Long call(ColumnAggregationProtocol instance) throws IOException{
             return instance.sum(TEST_FAMILY, TEST_QUALIFIER);
           }
         });
     int sumResult = 0;
     int expectedResult = 0;
-    for (Map.Entry<byte[], Integer> e : results.entrySet()) {
+    for (Map.Entry<byte[], Long> e : results.entrySet()) {
       sumResult += e.getValue();
     }
     for(int i = 0;i < ROWSIZE; i++) {
@@ -172,14 +109,14 @@ public class TestCoprocessorEndpoint {
     results = table.coprocessorExec(ColumnAggregationProtocol.class,
         ROWS[rowSeperator1 + 1],
         ROWS[rowSeperator2 + 1],
-        new Batch.Call<ColumnAggregationProtocol,Integer>() {
-          public Integer call(ColumnAggregationProtocol instance) throws IOException{
+        new Batch.Call<ColumnAggregationProtocol,Long>() {
+          public Long call(ColumnAggregationProtocol instance) throws IOException{
             return instance.sum(TEST_FAMILY, TEST_QUALIFIER);
           }
         });
     sumResult = 0;
     expectedResult = 0;
-    for (Map.Entry<byte[], Integer> e : results.entrySet()) {
+    for (Map.Entry<byte[], Long> e : results.entrySet()) {
       sumResult += e.getValue();
     }
     for(int i = rowSeperator1;i < ROWSIZE; i++) {
