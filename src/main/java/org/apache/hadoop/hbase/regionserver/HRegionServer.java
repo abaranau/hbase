@@ -261,7 +261,8 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
     this.isOnline = false;
 
     // check to see if the codec list is available:
-    String [] codecs = conf.getStrings("hbase.regionserver.codecs", null);
+    String [] codecs = conf.getStrings("hbase.regionserver.codecs",
+        (String[])null);
     if (codecs != null) {
       for (String codec : codecs) {
         if (!CompressionTest.testCompression(codec)) {
@@ -1108,6 +1109,9 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
       double ratio = lruBlockCache.getStats().getHitRatio();
       int percent = (int) (ratio * 100);
       this.metrics.blockCacheHitRatio.set(percent);
+      ratio = lruBlockCache.getStats().getHitCachingRatio();
+      percent = (int) (ratio * 100);
+      this.metrics.blockCacheHitCachingRatio.set(percent);
     }
   }
 
@@ -2406,6 +2410,7 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
     return serverInfo;
   }
 
+  @SuppressWarnings("unchecked")
   @Override
   public <R> MultiResponse<R> multi(MultiAction<R> multi) throws IOException {
     MultiResponse response = new MultiResponse();
