@@ -35,7 +35,7 @@ interface RpcEngine {
   VersionedProtocol getProxy(Class<? extends VersionedProtocol> protocol,
                   long clientVersion, InetSocketAddress addr,
                   UserGroupInformation ticket, Configuration conf,
-                  SocketFactory factory) throws IOException;
+                  SocketFactory factory, int rpcTimeout) throws IOException;
 
   /** Stop this proxy. */
   void stopProxy(VersionedProtocol proxy);

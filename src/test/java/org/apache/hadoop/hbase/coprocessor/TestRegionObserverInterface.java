@@ -21,29 +21,33 @@
 package org.apache.hadoop.hbase.coprocessor;
 
 import java.io.IOException;
-import java.util.List;
-import java.util.Map;
+import java.util.Arrays;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hbase.HBaseConfiguration;
+import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HTableDescriptor;
-import org.apache.hadoop.hbase.KeyValue;
+import org.apache.hadoop.hbase.MiniHBaseCluster;
 import org.apache.hadoop.hbase.client.Delete;
 import org.apache.hadoop.hbase.client.Get;
+import org.apache.hadoop.hbase.client.HTable;
+import org.apache.hadoop.hbase.client.Increment;
 import org.apache.hadoop.hbase.client.Put;
-import org.apache.hadoop.hbase.client.Result;
-import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.coprocessor.Coprocessor.Priority;
-import org.apache.hadoop.hbase.coprocessor.CoprocessorEnvironment;
 import org.apache.hadoop.hbase.regionserver.CoprocessorHost;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.JVMClusterUtil;
+
+import org.junit.AfterClass;
+import org.junit.BeforeClass;
 import org.junit.Test;
+
+import org.apache.hadoop.conf.Configuration;
 
 import static org.junit.Assert.*;
 
@@ -51,194 +55,49 @@ public class TestRegionObserverInterface {
   static final Log LOG = LogFactory.getLog(TestRegionObserverInterface.class);
   static final String DIR = "test/build/data/TestRegionObserver/";
 
-  static byte[] A = Bytes.toBytes("a");
-  static byte[] B = Bytes.toBytes("b");
-  static byte[] C = Bytes.toBytes("c");
-  static byte[] ROW = Bytes.toBytes("testrow");
-  static byte[] ROW1 = Bytes.toBytes("testrow1");
-  static byte[] ROW2 = Bytes.toBytes("testrow2");
+  public static final byte[] TEST_TABLE = Bytes.toBytes("TestTable");
+  public static final byte[] TEST_TABLE_2 = Bytes.toBytes("TestTable2");
+  public static final byte[] TEST_FAMILY = Bytes.toBytes("TestFamily");
+  public static final byte[] TEST_QUALIFIER = Bytes.toBytes("TestQualifier");
+  
+  public final static byte[] A = Bytes.toBytes("a");
+  public final static byte[] B = Bytes.toBytes("b");
+  public final static byte[] C = Bytes.toBytes("c");
+  public final static byte[] ROW = Bytes.toBytes("testrow");
+  public final static byte[] ROW1 = Bytes.toBytes("testrow1");
+  public final static byte[] ROW2 = Bytes.toBytes("testrow2");
+  
+  private static final int ROWSIZE = 20;
+  private static byte [][] ROWS = makeN(ROW, ROWSIZE);
 
-  public static class SimpleRegionObserver extends BaseRegionObserver {
-    boolean beforeDelete = true;
-    boolean scannerOpened = false;
-    boolean hadPreGet = false;
-    boolean hadPostGet = false;
-    boolean hadPrePut = false;
-    boolean hadPostPut = false;
-    boolean hadPreDeleted = false;
-    boolean hadPostDeleted = false;
-    boolean hadPreGetClosestRowBefore = false;
-    boolean hadPostGetClosestRowBefore = false;
+  private static HBaseTestingUtility util = new HBaseTestingUtility();
+  private static MiniHBaseCluster cluster = null;
 
-    // Overriden RegionObserver methods
-    @Override
-    public List<KeyValue> preGet(CoprocessorEnvironment e, Get get,
-        List<KeyValue> results) {
-      // is there a way to test this hook?
-      LOG.info("preGet: get=" + get);
-      hadPreGet = true;
-      assertNotNull(e);
-      assertNotNull(e.getRegion());
-      return null;
+  @BeforeClass
+  public static void setupBeforeClass() throws Exception {
+    // set configure to indicate which cp should be loaded
+    Configuration conf = util.getConfiguration();
+    conf.set("hbase.coprocessor.default.classes",
+        "org.apache.hadoop.hbase.coprocessor.SimpleRegionObserver");
+
+    util.startMiniCluster(2);
+    cluster = util.getMiniHBaseCluster();
+
+    HTable table = util.createTable(TEST_TABLE_2, TEST_FAMILY);
+
+    for(int i = 0; i < ROWSIZE; i++) {
+      Put put = new Put(ROWS[i]);
+      put.add(TEST_FAMILY, TEST_QUALIFIER, Bytes.toBytes(i));
+      table.put(put);
     }
 
-    @Override
-    public List<KeyValue> postGet(CoprocessorEnvironment e, Get get, List<KeyValue> results) {
-      LOG.info("postGet: get=" + get);
-      assertTrue(Bytes.equals(get.getRow(), ROW));
-      if (beforeDelete) {
-        assertNotNull(results.get(0));
-        assertTrue(Bytes.equals(results.get(0).getRow(), ROW));
-        boolean foundA = false;
-        boolean foundB = false;
-        boolean foundC = false;
-        for (KeyValue kv: results) {
-          if (Bytes.equals(kv.getFamily(), A)) {
-            foundA = true;
-          }
-          if (Bytes.equals(kv.getFamily(), B)) {
-            foundB = true;
-          }
-          if (Bytes.equals(kv.getFamily(), C)) {
-            foundC = true;
-          }
-        }
-        assertTrue(foundA);
-        assertTrue(foundB);
-        assertTrue(foundC);
-        hadPostGet = true;
-      } else {
-        assertTrue(results.isEmpty());
-      }
-      return results;
-    }
+    // sleep here is an ugly hack to allow region transitions to finish
+    Thread.sleep(5000);
+  }
 
-    @Override
-    public Map<byte[], List<KeyValue>> prePut(CoprocessorEnvironment e,
-        Map<byte[], List<KeyValue>> familyMap) {
-      LOG.info("onPut put=" + familyMap);
-      List<KeyValue> kvs = familyMap.get(A);
-      assertNotNull(kvs);
-      assertNotNull(kvs.get(0));
-      assertTrue(Bytes.equals(kvs.get(0).getQualifier(), A));
-      kvs = familyMap.get(B);
-      assertNotNull(kvs);
-      assertNotNull(kvs.get(0));
-      assertTrue(Bytes.equals(kvs.get(0).getQualifier(), B));
-      kvs = familyMap.get(C);
-      assertNotNull(kvs);
-      assertNotNull(kvs.get(0));
-      assertTrue(Bytes.equals(kvs.get(0).getQualifier(), C));
-      hadPrePut = true;
-      return familyMap;
-    }
-
-    @Override
-    public Map<byte[], List<KeyValue>> postPut(CoprocessorEnvironment e,
-        Map<byte[], List<KeyValue>> familyMap) {
-      LOG.info("onPut put=" + familyMap);
-      List<KeyValue> kvs = familyMap.get(A);
-      assertNotNull(kvs);
-      assertNotNull(kvs.get(0));
-      assertTrue(Bytes.equals(kvs.get(0).getQualifier(), A));
-      kvs = familyMap.get(B);
-      assertNotNull(kvs);
-      assertNotNull(kvs.get(0));
-      assertTrue(Bytes.equals(kvs.get(0).getQualifier(), B));
-      kvs = familyMap.get(C);
-      assertNotNull(kvs);
-      assertNotNull(kvs.get(0));
-      assertTrue(Bytes.equals(kvs.get(0).getQualifier(), C));
-      hadPostPut = true;
-      return familyMap;
-    }
-
-    @Override
-    public Map<byte[], List<KeyValue>> preDelete(CoprocessorEnvironment e,
-        Map<byte[], List<KeyValue>> familyMap) {
-      LOG.info("preDelete: delete=" + familyMap);
-      hadPreDeleted = true;
-      return familyMap;
-    }
-
-    @Override
-    public Map<byte[], List<KeyValue>> postDelete(CoprocessorEnvironment e,
-        Map<byte[], List<KeyValue>> familyMap) {
-      LOG.info("postDelete: delete=" + familyMap);
-      beforeDelete = false;
-      hadPostDeleted = true;
-      return familyMap;
-    }
-
-    @Override
-    public Result preGetClosestRowBefore(final CoprocessorEnvironment e, final byte[] row,
-        final byte[] family, Result result) {
-      hadPreGetClosestRowBefore = true;
-      return result;
-    }
-
-    @Override
-    public Result postGetClosestRowBefore(final CoprocessorEnvironment e, final byte[] row,
-        final byte[] family, Result result) {
-      hadPostGetClosestRowBefore = true;
-      return result;
-    }
-
-    @Override
-    public void preScannerOpen(CoprocessorEnvironment e, Scan scan) {
-      // not tested -- need to go through the RS to get here
-    }
-
-    @Override
-    public void postScannerOpen(CoprocessorEnvironment e, Scan scan, long scannerId) {
-      // not tested -- need to go through the RS to get here
-    }
-
-    @Override
-    public List<KeyValue> preScannerNext(final CoprocessorEnvironment e,
-        final long scannerId, List<KeyValue> results) {
-      // not tested -- need to go through the RS to get here
-      return results;
-    }
-
-    @Override
-    public List<KeyValue> postScannerNext(final CoprocessorEnvironment e,
-        final long scannerId, List<KeyValue> results) {
-      // not tested -- need to go through the RS to get here
-      return results;
-    }
-
-    @Override
-    public void preScannerClose(final CoprocessorEnvironment e,
-        final long scannerId) {
-      // not tested -- need to go through the RS to get here
-    }
-
-    @Override
-    public void postScannerClose(final CoprocessorEnvironment e,
-        final long scannerId) {
-      // not tested -- need to go through the RS to get here
-    }
-
-    boolean hadPreGet() {
-      return hadPreGet;
-    }
-
-    boolean hadPostGet() {
-      return hadPostGet;
-    }
-
-    boolean hadPrePut() {
-      return hadPrePut;
-    }
-
-    boolean hadPostPut() {
-      return hadPostPut;
-    }
-
-    boolean hadDelete() {
-      return !beforeDelete;
-    }
+  @AfterClass
+  public static void tearDownAfterClass() throws Exception {
+    util.shutdownMiniCluster();
   }
 
   HRegion initHRegion (byte [] tableName, String callingMethod,
@@ -266,46 +125,71 @@ public class TestRegionObserverInterface {
     byte[] TABLE = Bytes.toBytes(getClass().getName());
     byte[][] FAMILIES = new byte[][] { A, B, C } ;
 
-    HRegion region = initHRegion(TABLE, getClass().getName(),
-      HBaseConfiguration.create(), SimpleRegionObserver.class, FAMILIES);
-
     Put put = new Put(ROW);
     put.add(A, A, A);
     put.add(B, B, B);
     put.add(C, C, C);
-    int lockid = region.obtainRowLock(ROW);
-    region.put(put, lockid);
-    region.releaseRowLock(lockid);
 
     Get get = new Get(ROW);
     get.addColumn(A, A);
     get.addColumn(B, B);
     get.addColumn(C, C);
-    lockid = region.obtainRowLock(ROW);
-    region.get(get, lockid);
-    region.releaseRowLock(lockid);
 
     Delete delete = new Delete(ROW);
     delete.deleteColumn(A, A);
     delete.deleteColumn(B, B);
     delete.deleteColumn(C, C);
-    lockid = region.obtainRowLock(ROW);
-    region.delete(delete, lockid, true);
-    region.releaseRowLock(lockid);
+    
+    for (JVMClusterUtil.RegionServerThread t : cluster.getRegionServerThreads()) {
+      for (HRegionInfo r : t.getRegionServer().getOnlineRegions()) {
+        if (!Arrays.equals(r.getTableDesc().getName(), TEST_TABLE)) {
+          continue;
+        }
+        CoprocessorHost cph = t.getRegionServer().getOnlineRegion(r.getRegionName()).
+          getCoprocessorHost();
+        Coprocessor c = cph.findCoprocessor(SimpleRegionObserver.class.getName());
+        assertNotNull(c);
+        assertTrue(((SimpleRegionObserver)c).hadPreGet());
+        assertTrue(((SimpleRegionObserver)c).hadPostGet());
+        assertTrue(((SimpleRegionObserver)c).hadPrePut());
+        assertTrue(((SimpleRegionObserver)c).hadPostPut());
+        assertTrue(((SimpleRegionObserver)c).hadDelete());
+      }
+    }
+  }
 
-    // get again after delete
-    lockid = region.obtainRowLock(ROW);
-    region.get(get, lockid);
-    region.releaseRowLock(lockid);
+  // TODO: add tests for other methods which need to be tested
+  // at region servers.
 
-    Coprocessor c = region.getCoprocessorHost()
-      .findCoprocessor(SimpleRegionObserver.class.getName());
-    assertNotNull(c);
-    assertTrue(((SimpleRegionObserver)c).hadPreGet());
-    assertTrue(((SimpleRegionObserver)c).hadPostGet());
-    assertTrue(((SimpleRegionObserver)c).hadPrePut());
-    assertTrue(((SimpleRegionObserver)c).hadPostPut());
-    assertTrue(((SimpleRegionObserver)c).hadDelete());
+  @Test
+  public void testIncrementHook() throws IOException {
+    HTable table = new HTable(util.getConfiguration(), TEST_TABLE_2);
+
+    Increment inc = new Increment(Bytes.toBytes(0));
+    inc.addColumn(TEST_FAMILY, TEST_QUALIFIER, 1);
+    
+    table.increment(inc);
+
+    for (JVMClusterUtil.RegionServerThread t : cluster.getRegionServerThreads()) {
+      for (HRegionInfo r : t.getRegionServer().getOnlineRegions()) {
+        if (!Arrays.equals(r.getTableDesc().getName(), TEST_TABLE_2)) {
+          continue;
+        }
+        CoprocessorHost cph = t.getRegionServer().getOnlineRegion(r.getRegionName()).
+          getCoprocessorHost();
+        Coprocessor c = cph.findCoprocessor(SimpleRegionObserver.class.getName());
+        assertTrue(((SimpleRegionObserver)c).hadPreIncrement());
+        assertTrue(((SimpleRegionObserver)c).hadPostIncrement());
+      }
+    }
+  }
+
+  private static byte [][] makeN(byte [] base, int n) {
+    byte [][] ret = new byte[n][];
+    for(int i=0;i<n;i++) {
+      ret[i] = Bytes.add(base, Bytes.toBytes(String.format("%02d", i)));
+    }
+    return ret;
   }
 }
 

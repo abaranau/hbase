@@ -123,14 +123,16 @@ class WritableRpcEngine implements RpcEngine {
     private UserGroupInformation ticket;
     private HBaseClient client;
     private boolean isClosed = false;
+    final private int rpcTimeout;
 
     public Invoker(Class<? extends VersionedProtocol> protocol,
                    InetSocketAddress address, UserGroupInformation ticket,
-                   Configuration conf, SocketFactory factory) {
+                   Configuration conf, SocketFactory factory, int rpcTimeout) {
       this.protocol = protocol;
       this.address = address;
       this.ticket = ticket;
       this.client = CLIENTS.getClient(conf, factory);
+      this.rpcTimeout = rpcTimeout;
     }
 
     public Object invoke(Object proxy, Method method, Object[] args)
@@ -143,7 +145,7 @@ class WritableRpcEngine implements RpcEngine {
 
       HbaseObjectWritable value = (HbaseObjectWritable)
         client.call(new Invocation(method, args), address,
-                    protocol, ticket);
+                    protocol, ticket, rpcTimeout);
       if (logDebug) {
         long callTime = System.currentTimeMillis() - startTime;
         LOG.debug("Call: " + method.getName() + " " + callTime);
@@ -165,13 +167,13 @@ class WritableRpcEngine implements RpcEngine {
   public VersionedProtocol getProxy(
       Class<? extends VersionedProtocol> protocol, long clientVersion,
       InetSocketAddress addr, UserGroupInformation ticket,
-      Configuration conf, SocketFactory factory)
+      Configuration conf, SocketFactory factory, int rpcTimeout)
     throws IOException {
 
       VersionedProtocol proxy =
           (VersionedProtocol) Proxy.newProxyInstance(
               protocol.getClassLoader(), new Class[] { protocol },
-              new Invoker(protocol, addr, ticket, conf, factory));
+              new Invoker(protocol, addr, ticket, conf, factory, rpcTimeout));
     if (proxy instanceof VersionedProtocol) {
       long serverVersion = ((VersionedProtocol)proxy)
         .getProtocolVersion(protocol.getName(), clientVersion);

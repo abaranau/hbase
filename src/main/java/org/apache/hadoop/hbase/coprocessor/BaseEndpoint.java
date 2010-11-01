@@ -53,6 +53,10 @@ public abstract class BaseEndpoint implements Coprocessor,
   @Override
   public void preOpen(CoprocessorEnvironment e) { }
 
+  /**
+   * It initializes the coprocessor resource. If you need to override this
+   * method, you'd better call super(e). 
+   */
   @Override
   public void postOpen(CoprocessorEnvironment e) {
     setEnvironment(e);

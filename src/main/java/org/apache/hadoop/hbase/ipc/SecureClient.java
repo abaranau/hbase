@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2010 The Apache Software Foundation
  *
  * Licensed to the Apache Software Foundation (ASF) under one
@@ -190,7 +190,8 @@ public class SecureClient extends HBaseClient {
        * otherwise, throw the timeout exception.
        */
       private void handleTimeout(SocketTimeoutException e) throws IOException {
-        if (shouldCloseConnection.get() || !running.get()) {
+        if (shouldCloseConnection.get() || !running.get() ||
+            remoteId.rpcTimeout > 0) {
           throw e;
         }
         sendPing();
@@ -274,6 +275,9 @@ public class SecureClient extends HBaseClient {
           this.socket.setKeepAlive(tcpKeepAlive);
           // connection time out is 20s
           NetUtils.connect(this.socket, remoteId.getAddress(), 20000);
+          if (remoteId.rpcTimeout > 0) {
+            pingInterval = remoteId.rpcTimeout; // overwrite pingInterval
+          }
           this.socket.setSoTimeout(pingInterval);
           return;
         } catch (SocketTimeoutException toe) {
@@ -728,6 +732,7 @@ public class SecureClient extends HBaseClient {
   private Connection getConnection(InetSocketAddress addr,
                                    Class<? extends VersionedProtocol> protocol,
                                    UserGroupInformation ticket,
+                                   int rpcTimeout,
                                    Call call)
                                    throws IOException, InterruptedException {
     if (!running.get()) {
@@ -739,7 +744,7 @@ public class SecureClient extends HBaseClient {
      * connectionsId object and with set() method. We need to manage the
      * refs for keys in HashMap properly. For now its ok.
      */
-    ConnectionId remoteId = new ConnectionId(addr, protocol, ticket);
+    ConnectionId remoteId = new ConnectionId(addr, protocol, ticket, rpcTimeout);
     do {
       synchronized (connections) {
         connection = connections.get(remoteId);

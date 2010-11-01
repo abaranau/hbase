@@ -23,6 +23,7 @@ import java.util.Map;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.client.Delete;
 import org.apache.hadoop.hbase.client.Get;
+import org.apache.hadoop.hbase.client.Increment;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.Scan;
@@ -159,8 +160,7 @@ public abstract class BaseRegionObserver implements Coprocessor,
   @Override
   public long preIncrementColumnValue(final CoprocessorEnvironment e,
       final byte [] row, final byte [] family, final byte [] qualifier,
-      final long amount, final boolean writeToWAL)
-      throws IOException {
+      final long amount, final boolean writeToWAL) throws IOException {
     return amount;
   }
 
@@ -168,7 +168,19 @@ public abstract class BaseRegionObserver implements Coprocessor,
   public long postIncrementColumnValue(final CoprocessorEnvironment e,
       final byte [] row, final byte [] family, final byte [] qualifier,
       final long amount, final boolean writeToWAL, long result)
-    throws IOException {
+  throws IOException {
+    return result;
+  }
+
+  @Override
+  public Increment preIncrement(CoprocessorEnvironment e, Increment increment) 
+  throws IOException {
+    return increment;
+  }
+
+  @Override
+  public Result postIncrement(CoprocessorEnvironment e, Increment increment,
+      Result result) throws IOException {
     return result;
   }
 

@@ -153,14 +153,16 @@ public class SecureRpcEngine implements RpcEngine {
     private UserGroupInformation ticket;
     private SecureClient client;
     private boolean isClosed = false;
+    final private int rpcTimeout;
 
     public Invoker(Class<? extends VersionedProtocol> protocol,
         InetSocketAddress address, UserGroupInformation ticket,
-        Configuration conf, SocketFactory factory) {
+        Configuration conf, SocketFactory factory, int rpcTimeout) {
       this.protocol = protocol;
       this.address = address;
       this.ticket = ticket;
       this.client = CLIENTS.getClient(conf, factory);
+      this.rpcTimeout = rpcTimeout;
     }
 
     public Object invoke(Object proxy, Method method, Object[] args)
@@ -172,7 +174,7 @@ public class SecureRpcEngine implements RpcEngine {
       }
       HbaseObjectWritable value = (HbaseObjectWritable)
         client.call(new Invocation(method, args), address,
-                    protocol, ticket);
+                    protocol, ticket, rpcTimeout);
       if (logDebug) {
         long callTime = System.currentTimeMillis() - startTime;
         LOG.debug("Call: " + method.getName() + " " + callTime);
@@ -205,7 +207,7 @@ public class SecureRpcEngine implements RpcEngine {
   public VersionedProtocol getProxy(
       Class<? extends VersionedProtocol> protocol, long clientVersion,
       InetSocketAddress addr, UserGroupInformation ticket,
-      Configuration conf, SocketFactory factory)
+      Configuration conf, SocketFactory factory, int rpcTimeout)
   throws IOException {
     if (UserGroupInformation.isSecurityEnabled()) {
       HBaseSaslRpcServer.init(conf);
@@ -213,7 +215,7 @@ public class SecureRpcEngine implements RpcEngine {
     VersionedProtocol proxy =
         (VersionedProtocol) Proxy.newProxyInstance(
             protocol.getClassLoader(), new Class[] { protocol },
-            new Invoker(protocol, addr, ticket, conf, factory));
+            new Invoker(protocol, addr, ticket, conf, factory, rpcTimeout));
     long serverVersion = proxy.getProtocolVersion(protocol.getName(),
                                                   clientVersion);
     if (serverVersion != clientVersion) {
