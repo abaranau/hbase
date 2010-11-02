@@ -47,7 +47,7 @@ public class HBasePolicyProvider extends PolicyProvider {
     // set service-level authorization security policy
     if (conf.getBoolean(
           ServiceAuthorizationManager.SERVICE_AUTHORIZATION_CONFIG, false)) {
-      ServiceAuthorizationManager.refresh(conf, new HBasePolicyProvider());
+      new ServiceAuthorizationManager().refresh(conf, new HBasePolicyProvider());
     }
   }
 }

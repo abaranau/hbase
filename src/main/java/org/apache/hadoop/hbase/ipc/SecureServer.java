@@ -85,6 +85,7 @@ public abstract class SecureServer extends HBaseServer {
   private static final String AUTH_SUCCESSFULL_FOR = "Auth successfull for ";
 
   private SecretManager<TokenIdentifier> secretManager;
+  private ServiceAuthorizationManager authManager;
 
   /** Reads calls from a connection and queues them for handling. */
   public class SecureConnection extends HBaseServer.Connection  {
@@ -721,6 +722,7 @@ public abstract class SecureServer extends HBaseServer {
     super(bindAddress, port, paramClass, handlerCount, priorityHandlerCount, conf, serverName, highPriorityLevel);
     this.authorize =
       conf.getBoolean(HADOOP_SECURITY_AUTHORIZATION, false);
+    this.authManager = new ServiceAuthorizationManager();
     this.isSecurityEnabled = UserGroupInformation.isSecurityEnabled();
 
     if (isSecurityEnabled) {
@@ -836,7 +838,7 @@ public abstract class SecureServer extends HBaseServer {
         throw new AuthorizationException("Unknown protocol: " +
                                          connection.getProtocol());
       }
-      ServiceAuthorizationManager.authorize(user, protocol, getConf(), hostname);
+      authManager.authorize(user, protocol, getConf(), hostname);
     }
   }
 }
