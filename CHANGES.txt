@@ -637,6 +637,11 @@ Release 0.21.0 - Unreleased
    HBASE-2006  Documentation of hbase-site.xml parameters
    HBASE-2672  README.txt should contain basic information like how to run
                or build HBase
+   HBASE-3179  Enable ReplicationLogsCleaner only if replication is,
+               and fix its test
+   HBASE-3185  User-triggered compactions are triggering splits!
+   HBASE-1932  Encourage use of 'lzo' compression... add the wiki page to
+               getting started
 
 
   IMPROVEMENTS
@@ -1082,6 +1087,11 @@ Release 0.21.0 - Unreleased
    HBASE-3154  HBase RPC should support timeout (Hairong via jgray)
    HBASE-3184  Xmx setting in pom to use for tests/surefire does not appear
                to work
+   HBASE-3120  [rest] Content transcoding
+   HBASE-3181  Review, document, and fix up Regions-in-Transition timeout
+               logic
+   HBASE-3180  Review periodic master logging, especially ServerManager once
+               a minute
 
 
   NEW FEATURES

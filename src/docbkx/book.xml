@@ -89,7 +89,7 @@
 
       <para><itemizedlist>
           <para>Here is a quick guide to starting up a standalone HBase
-          instance, inserting rows into a table via the
+          instance, creating a table and inserting rows into a table via the
           <link linkend="shell">HBase Shell</link>, and then cleaning up and shutting
           down your running instance.</para>
 
@@ -101,7 +101,7 @@
             Download Mirrors</link>. Click on it. This will take you to a
             mirror of <emphasis>HBase Releases</emphasis>. Click on
             the folder named <filename>stable</filename> and then download the
-            file that ends in <filename>.tar.gz</filename>;
+            file that ends in <filename>.tar.gz</filename> to your local filesystem;
             e.g. <filename>hbase-<?eval ${project.version}?>.tar.gz</filename>.</para>
 
             <para>Decompress and untar your download and then change into the
@@ -112,16 +112,20 @@ $ cd hbase-<?eval ${project.version}?>
 $ ./bin/start-hbase.sh
 starting master, logging to logs/hbase-user-master-example.org.out</programlisting></para>
 
-            <para>You now have a running HBase instance. HBase logs can be
-            found in the <filename>logs</filename> subdirectory. Check them
+            <para>You now have a running standalone HBase instance. In standalone mode, HBase runs
+            all daemons in the the one JVM; i.e. the master, regionserver, and zookeeper daemons.
+            Also by default, HBase in standalone mode writes data to <filename>/tmp/hbase-${USERID}</filename>.
+            HBase logs can be found in the <filename>logs</filename> subdirectory. Check them
             out especially if HBase had trouble starting.</para>
 
             <note>
             <title>Is <application>java</application> installed?</title>
-            <para>The above presumes a 1.6 version of Oracle java is installed on your
+            <para>The above presumes a 1.6 version of Oracle
+            <application>java</application> is installed on your
             machine and available on your path; i.e. when you type
             <application>java</application>, you see output that describes the options
-            the java program takes.  If this is not the case, HBase will not start.
+            the java program takes (HBase like Hadoop requires java 6).  If this is
+            not the case, HBase will not start.
             Install java, edit <filename>conf/hbase-env.sh</filename>, uncommenting the
             <envar>JAVA_HOME</envar> line pointing it  to your java install.  Then,
             retry the steps above.</para>
@@ -150,10 +154,14 @@ hbase(main):001:0&gt; </programlisting></para>
 
           <listitem>
             <para>Create a table named <filename>test</filename> with a single
-            column family named <filename>cf.</filename> and then insert some
+            column family named <filename>cf.</filename>.  Verify its creation by
+            listing all tables and then insert some
             values.</para>
             <para><programlisting>hbase(main):003:0&gt; create 'test', 'cf'
 0 row(s) in 1.2200 seconds
+hbase(main):003:0&gt; list 'table'
+test
+1 row(s) in 0.0550 seconds
 hbase(main):004:0&gt; put 'test', 'row1', 'cf:a', 'value1'
 0 row(s) in 0.0560 seconds
 hbase(main):005:0&gt; put 'test', 'row2', 'cf:b', 'value2'
@@ -210,6 +218,7 @@ hbase(main):013:0&gt; drop 'test'
 stopping hbase...............</programlisting></para>
           </listitem>
         </itemizedlist></para>
+        <para>To learn how to set up a HBase in distributed mode, see the next section.</para>
     </section>
 
     <section xml:id="notsoquick">
@@ -221,6 +230,7 @@ stopping hbase...............</programlisting></para>
       different HBase run modes: standalone, what is described above in <link
       linkend="quickstart">Quick Start,</link> pseudo-distributed where all
       daemons run on a single server, and distributed.</para>
+      <para>Be sure to read the <link linkend="important_configurations">Important Configurations</link>.</para>
     </section>
   </chapter>
 
@@ -233,7 +243,6 @@ stopping hbase...............</programlisting></para>
     <title><filename>hbase-site.xml</filename> and <filename>hbase-default.xml</filename></title>
     <para>What are these?
     </para>
-
     <para>
     Not all configuration options make it out to
     <filename>hbase-default.xml</filename>.  Configuration
@@ -241,37 +250,94 @@ stopping hbase...............</programlisting></para>
     in code; the only way to turn up the configurations is
     via a reading of the source code.
     </para>
-
     <!--The file hbase-default.xml is generated as part of
     the build of the hbase site.  See the hbase pom.xml.
     The generated file is a docbook section with a glossary
     in it-->
     <xi:include xmlns:xi="http://www.w3.org/2001/XInclude"
       href="../../target/site/hbase-default.xml" />
-      </section>
+    </section>
 
       <section>
       <title><filename>hbase-env.sh</filename></title>
       <para></para>
       </section>
+
       <section>
       <title><filename>log4j.properties</filename></title>
       <para></para>
       </section>
-      <section>
-      <title>Noteworthy Configuration</title>
-      <para>Below we review a couple of the key configurations.
-      We'll list those you must to change to suit your context
-      and others that you should review and consider moving on
-      from defaults after guaging your deploys load and query profiles.
+
+      <section xml:id="important_configurations">
+      <title>The Important Configurations</title>
+      <para>Below we list the important Configurations.  We've divided this section into
+      required configuration and worth-a-look recommended configs.
       </para>
-      <section>
+
+
+      <section xml:id="required_configuration"><title>Required Configurations</title>
+      <para>Here are some configurations you must configure to suit
+      your deploy.
+      </para>
+      <section xml:id="ulimit">
+      <title><varname>ulimit</varname></title>
+      <para>HBase is a database, it uses a lot of files at the same time.
+      The default ulimit -n of 1024 on *nix systems is insufficient.
+      Any significant amount of loading will lead you to 
+      <link xlink:href="http://wiki.apache.org/hadoop/Hbase/FAQ#A6">FAQ: Why do I see "java.io.IOException...(Too many open files)" in my logs?</link>.
+      You will also notice errors like:
+      <programlisting>2010-04-06 03:04:37,542 INFO org.apache.hadoop.hdfs.DFSClient: Exception increateBlockOutputStream java.io.EOFException
+      2010-04-06 03:04:37,542 INFO org.apache.hadoop.hdfs.DFSClient: Abandoning block blk_-6935524980745310745_1391901
+      </programlisting>
+      Do yourself a favor and change the upper bound on the number of file descriptors.
+      Set it to north of 10k.  See the above referenced FAQ for how.</para>
+      <para>To be clear, upping the file descriptors for the user who is
+      running the HBase process is an operating system configuration, not an
+      HBase configuration.
+      </para>
+      </section>
+      <section xml:id="dfs.datanode.max.xcievers">
+      <title><varname>dfs.datanode.max.xcievers</varname></title>
+      <para>
+      Hadoop HDFS has an upper bound of files that it will serve at one same time,
+      called <varname>xcievers</varname> (yes, this is misspelled). Again, before
+      doing any loading, make sure you have configured Hadoop's <filename>conf/hdfs-site.xml</filename>
+      setting the <varname>xceivers</varname> value to at least the following:
+      <programlisting>
+      &lt;property&gt;
+        &lt;name&gt;dfs.datanode.max.xcievers&lt;/name&gt;
+        &lt;value&gt;2047&lt;/value&gt;
+      &lt;/property&gt;
+      </programlisting>
+      </para>
+      </section>
+      </section>
+
+      <section xml:id="recommended_configurations"><title>Recommended Configuations</title>
+      <section xml:id="lzo">
       <title>LZO compression</title>
       <para>You should consider enabling LZO compression.  Its
       near-frictionless and in most all cases boosts performance.
-      To enable LZO, TODO...
+      </para>
+      <para>Unfortunately, HBase cannot ship with LZO because of
+      the licensing issues; HBase is Apache-licensed, LZO is GPL.
+      Therefore LZO install is to be done post-HBase install.
+      See the <link xlink:href="http://wiki.apache.org/hadoop/UsingLzoCompression">Using LZO Compression</link>
+      wiki page for how to make LZO work with HBase.
+      </para>
+      <para>A common problem users run into when using LZO is that while initial
+      setup of the cluster runs smooth, a month goes by and some sysadmin goes to
+      add a machine to the cluster only they'll have forgotten to do the LZO
+      fixup on the new machine.  In versions since HBase 0.90.0, we should
+      fail in a way that makes it plain what the problem is, but maybe not.
+      Remember you read this paragraph<footnote><para>See
+      <link linkend="hbase.regionserver.codec">hbase.regionserver.codec</link>
+      for a feature to help protect against failed LZO install</para></footnote>.
       </para>
       </section>
+      </section>
+
+
 
       </section>
   </chapter>
@@ -1192,7 +1258,7 @@ stopping hbase...............</programlisting></para>
     xlink:href="http://en.wikipedia.org/wiki/Write-ahead_logging"> Write-Ahead
     Log</link></subtitle>
 
-    <para>Each RegionServer adds updates to its <link linkend="???">WAL</link>
+    <para>Each RegionServer adds updates to its Write-ahead Log (WAL)
     first, and then to memory.</para>
 
     <section>
