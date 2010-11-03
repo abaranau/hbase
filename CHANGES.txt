@@ -642,6 +642,9 @@ Release 0.21.0 - Unreleased
    HBASE-3185  User-triggered compactions are triggering splits!
    HBASE-1932  Encourage use of 'lzo' compression... add the wiki page to
                getting started
+   HBASE-3151  NPE when trying to read regioninfo from .META.
+   HBASE-3191  FilterList with MUST_PASS_ONE and SCVF isn't working
+               (Stefan Seelmann via Stack)
 
 
   IMPROVEMENTS
@@ -1092,6 +1095,7 @@ Release 0.21.0 - Unreleased
                logic
    HBASE-3180  Review periodic master logging, especially ServerManager once
                a minute
+   HBASE-3189  Stagger Major Compactions (Nicolas Spiegelberg via Stack)
 
 
   NEW FEATURES
