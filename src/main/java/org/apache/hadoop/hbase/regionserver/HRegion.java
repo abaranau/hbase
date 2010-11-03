@@ -1109,7 +1109,7 @@ public class HRegion implements HeapSize { // , Writable{
     checkRow(row);
     startRegionOperation();
     if (coprocessorHost != null) {
-      result = coprocessorHost.preGetClosestRowBefore(row, family, result);
+      coprocessorHost.preGetClosestRowBefore(row, family);
     }
     try {
       Store store = getStore(family);
@@ -1308,7 +1308,7 @@ public class HRegion implements HeapSize { // , Writable{
       flush = isFlushSize(memstoreSize.addAndGet(addedSize));
 
       if (coprocessorHost != null) {
-        familyMap = coprocessorHost.postDelete(familyMap);
+        coprocessorHost.postDelete(familyMap);
       }
     } finally {
       this.updatesLock.readLock().unlock();
@@ -1756,7 +1756,7 @@ public class HRegion implements HeapSize { // , Writable{
       flush = isFlushSize(memstoreSize.addAndGet(addedSize));
 
       if (coprocessorHost != null) {
-        familyMap = coprocessorHost.postPut(familyMap);
+        coprocessorHost.postPut(familyMap);
       }
     } finally {
       this.updatesLock.readLock().unlock();
@@ -2352,7 +2352,7 @@ public class HRegion implements HeapSize { // , Writable{
         results.clear();
 
         if (coprocessorHost != null) {
-          results = coprocessorHost.preScannerNext(hashCode(), results);
+          coprocessorHost.preScannerNext(hashCode());
         }
 
         boolean returnResult = nextInternal(limit);
@@ -3090,7 +3090,7 @@ public class HRegion implements HeapSize { // , Writable{
    * @param withCoprocessor invoke coprocessor or not. We don't want to
    * always invoke cp for this private method.
    */
-  private List<KeyValue> get(final Get get, boolean withCoprocessor)
+  private List<KeyValue> get(Get get, boolean withCoprocessor)
   throws IOException {
     Scan scan = new Scan(get);
 
@@ -3099,7 +3099,7 @@ public class HRegion implements HeapSize { // , Writable{
 
     // pre-get CP hook
     if ((coprocessorHost != null) && withCoprocessor) {
-      results = coprocessorHost.preGet(get, results);
+      get = coprocessorHost.preGet(get);
     }
 
     InternalScanner scanner = null;
