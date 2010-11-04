@@ -16,7 +16,6 @@
 
 package org.apache.hadoop.hbase.coprocessor;
 
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
@@ -27,6 +26,8 @@ import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.client.Increment;
+import org.apache.hadoop.hbase.coprocessor.CoprocessorEnvironment;
+import java.io.IOException;
 
 /**
  * Coprocessors implement this interface to observe and mediate client actions
@@ -38,12 +39,11 @@ public interface RegionObserver {
    * Called before a client makes a GetClosestRowBefore request.
    * @param e the environment provided by the region server
    * @param row the row
-   * @param result the result set
-   * @return the result set to return to the client
+   * @param family the family
    * @throws IOException if an error occurred on the coprocessor
    */
-  public Result preGetClosestRowBefore(final CoprocessorEnvironment e,
-      final byte [] row, final byte [] family, final Result result)
+  public void preGetClosestRowBefore(final CoprocessorEnvironment e,
+      final byte [] row, final byte [] family)
     throws IOException;
 
   /**
@@ -52,7 +52,7 @@ public interface RegionObserver {
    * @param row the row
    * @param family the desired family
    * @param result the result set
-   * @return the result set to return to the client
+   * @return the possible tranformed result set to return to the client
    * @throws IOException if an error occurred on the coprocessor
    */
   public Result postGetClosestRowBefore(final CoprocessorEnvironment e,
@@ -63,12 +63,10 @@ public interface RegionObserver {
    * Called before the client perform a get()
    * @param e the environment provided by the region server
    * @param get the Get request
-   * @param results the result list
-   * @return the possibly returned result by coprocessor
+   * @return the possibly transformed Get object by coprocessor
    * @throws IOException if an error occurred on the coprocessor
    */
-  public List<KeyValue> preGet(final CoprocessorEnvironment e, final Get get,
-      final List<KeyValue> results)
+  public Get preGet(final CoprocessorEnvironment e, final Get get)
     throws IOException;
 
   /**
@@ -76,7 +74,7 @@ public interface RegionObserver {
    * @param e the environment provided by the region server
    * @param get the Get request
    * @param results the result list
-   * @return the possibly transformed result list to use
+   * @return the possibly transformed result list to return to client
    * @throws IOException if an error occurred on the coprocessor
    */
   public List<KeyValue> postGet(final CoprocessorEnvironment e, final Get get,
@@ -87,9 +85,10 @@ public interface RegionObserver {
    * Called before the client tests for existence using a Get.
    * @param e the environment provided by the region server
    * @param get the Get request
+   * @return the possibly transformed Get object by coprocessor
    * @throws IOException if an error occurred on the coprocessor
    */
-  public void preExists(final CoprocessorEnvironment e, final Get get)
+  public Get preExists(final CoprocessorEnvironment e, final Get get)
     throws IOException;
 
   /**
@@ -119,11 +118,10 @@ public interface RegionObserver {
    * Called after the client stores a value.
    * @param e the environment provided by the region server
    * @param familyMap map of family to edits for the given family.
-   * @return the possibly transformed map to actually use
    * @throws IOException if an error occurred on the coprocessor
    */
-  public Map<byte[], List<KeyValue>> postPut(final CoprocessorEnvironment e,
-      final Map<byte[], List<KeyValue>> familyMap)
+  public void postPut(final CoprocessorEnvironment e, final Map<byte[],
+      List<KeyValue>> familyMap)
     throws IOException;
 
   /**
@@ -141,10 +139,9 @@ public interface RegionObserver {
    * Called after the client deletes a value.
    * @param e the environment provided by the region server
    * @param familyMap map of family to edits for the given family.
-   * @return the possibly transformed map to actually use
    * @throws IOException if an error occurred on the coprocessor
    */
-  public Map<byte[], List<KeyValue>> postDelete(final CoprocessorEnvironment e,
+  public void postDelete(final CoprocessorEnvironment e,
       final Map<byte[], List<KeyValue>> familyMap)
     throws IOException;
 
@@ -156,9 +153,10 @@ public interface RegionObserver {
    * @param qualifier column qualifier
    * @param value the expected value
    * @param put data to put if check succeeds
+   * @return the possibly transformed map to actually use
    * @throws IOException if an error occurred on the coprocessor
    */
-  public void preCheckAndPut(final CoprocessorEnvironment e,
+  public Put preCheckAndPut(final CoprocessorEnvironment e,
       final byte [] row, final byte [] family, final byte [] qualifier,
       final byte [] value, final Put put)
     throws IOException;
@@ -171,7 +169,8 @@ public interface RegionObserver {
    * @param qualifier column qualifier
    * @param value the expected value
    * @param put data to put if check succeeds
-   * @param result true if the new put was executed, false otherwise
+   * @param result from the checkAndPut
+   * @return the possibly transformed value to return to client
    * @throws IOException if an error occurred on the coprocessor
    */
   public boolean postCheckAndPut(final CoprocessorEnvironment e,
@@ -187,9 +186,10 @@ public interface RegionObserver {
    * @param qualifier column qualifier
    * @param value the expected value
    * @param delete delete to commit if check succeeds
+   * @return the possibly transformed map to actually use
    * @throws IOException if an error occurred on the coprocessor
    */
-  public void preCheckAndDelete(final CoprocessorEnvironment e,
+  public Delete preCheckAndDelete(final CoprocessorEnvironment e,
       final byte [] row, final byte [] family, final byte [] qualifier,
       final byte [] value, final Delete delete)
     throws IOException;
@@ -202,7 +202,8 @@ public interface RegionObserver {
    * @param qualifier column qualifier
    * @param value the expected value
    * @param delete delete to commit if check succeeds
-   * @param result true if the new put was executed, false otherwise
+   * @param result from the CheckAndDelete
+   * @return the possibly transformed value to return to client
    * @throws IOException if an error occurred on the coprocessor
    */
   public boolean postCheckAndDelete(final CoprocessorEnvironment e,
@@ -240,7 +241,7 @@ public interface RegionObserver {
    */
   public long postIncrementColumnValue(final CoprocessorEnvironment e,
       final byte [] row, final byte [] family, final byte [] qualifier,
-      final long amount, final boolean writeToWAL, long result)
+      final long amount, final boolean writeToWAL, final long result)
     throws IOException;
   
   /**
@@ -252,7 +253,7 @@ public interface RegionObserver {
    * @throws IOException if an error occurred on the coprocessor
    */
   public Increment preIncrement(final CoprocessorEnvironment e,
-      Increment increment)
+      final Increment increment)
     throws IOException;
 
   /**
@@ -265,16 +266,17 @@ public interface RegionObserver {
    * @throws IOException if an error occurred on the coprocessor
    */
   public Result postIncrement(final CoprocessorEnvironment e,
-      Increment increment, Result result)
+      final Increment increment, final Result result)
     throws IOException;
 
   /**
    * Called before the client opens a new scanner.
    * @param e the environment provided by the region server
    * @param scan the Scan specification
+   * @return the possibly transformed Scan to actually use
    * @throws IOException if an error occurred on the coprocessor
    */
-  public void preScannerOpen(final CoprocessorEnvironment e, final Scan scan)
+  public Scan preScannerOpen(final CoprocessorEnvironment e, final Scan scan)
     throws IOException;
 
   /**
@@ -296,8 +298,8 @@ public interface RegionObserver {
    * @return the possibly transformed result set to actually return
    * @throws IOException if an error occurred on the coprocessor
    */
-  public List<KeyValue> preScannerNext(final CoprocessorEnvironment e,
-      final long scannerId, final List<KeyValue> results)
+  public void preScannerNext(final CoprocessorEnvironment e,
+      final long scannerId)
     throws IOException;
 
   /**

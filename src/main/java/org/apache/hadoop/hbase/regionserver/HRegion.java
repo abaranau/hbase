@@ -276,7 +276,7 @@ public class HRegion implements HeapSize { // , Writable{
   /**
    * HRegion constructor.  his constructor should only be used for testing and
    * extensions.  Instances of HRegion should be instantiated with the
-   * {@link HRegion#newHRegion(Path, HLog, FileSystem, Configuration, org.apache.hadoop.hbase.HRegionInfo, RegionServerServices)} method.
+   * {@link HRegion#newHRegion(Path, HLog, FileSystem, Configuration, org.apache.hadoop.hbase.HRegionInfo, FlushRequester)} method.
    *
    *
    * @param tableDir qualified path of directory where region should be located,
@@ -294,7 +294,7 @@ public class HRegion implements HeapSize { // , Writable{
    * is new), then read them from the supplied path.
    * @param rsServices reference to {@link RegionServerServices} or null
    *
-   * @see HRegion#newHRegion(Path, HLog, FileSystem, Configuration, org.apache.hadoop.hbase.HRegionInfo, RegionServerServices)
+   * @see HRegion#newHRegion(Path, HLog, FileSystem, Configuration, org.apache.hadoop.hbase.HRegionInfo, FlushRequester)
    */
   public HRegion(Path tableDir, HLog log, FileSystem fs, Configuration conf,
       HRegionInfo regionInfo, RegionServerServices rsServices) {
@@ -1109,7 +1109,7 @@ public class HRegion implements HeapSize { // , Writable{
     checkRow(row);
     startRegionOperation();
     if (coprocessorHost != null) {
-      result = coprocessorHost.preGetClosestRowBefore(row, family, result);
+      coprocessorHost.preGetClosestRowBefore(row, family);
     }
     try {
       Store store = getStore(family);
@@ -1308,7 +1308,7 @@ public class HRegion implements HeapSize { // , Writable{
       flush = isFlushSize(memstoreSize.addAndGet(addedSize));
 
       if (coprocessorHost != null) {
-        familyMap = coprocessorHost.postDelete(familyMap);
+        coprocessorHost.postDelete(familyMap);
       }
     } finally {
       this.updatesLock.readLock().unlock();
@@ -1756,7 +1756,7 @@ public class HRegion implements HeapSize { // , Writable{
       flush = isFlushSize(memstoreSize.addAndGet(addedSize));
 
       if (coprocessorHost != null) {
-        familyMap = coprocessorHost.postPut(familyMap);
+        coprocessorHost.postPut(familyMap);
       }
     } finally {
       this.updatesLock.readLock().unlock();
@@ -2352,7 +2352,7 @@ public class HRegion implements HeapSize { // , Writable{
         results.clear();
 
         if (coprocessorHost != null) {
-          results = coprocessorHost.preScannerNext(hashCode(), results);
+          coprocessorHost.preScannerNext(hashCode());
         }
 
         boolean returnResult = nextInternal(limit);
@@ -2552,6 +2552,7 @@ public class HRegion implements HeapSize { // , Writable{
   /**
    * Open a Region.
    * @param info Info for region to be opened.
+   * @param rootDir Root directory for HBase instance
    * @param wal HLog for region to use. This method will call
    * HLog#setSequenceNumber(long) passing the result of the call to
    * HRegion#getMinSequenceId() to ensure the log id is properly kept
@@ -2575,7 +2576,7 @@ public class HRegion implements HeapSize { // , Writable{
    * HRegion#getMinSequenceId() to ensure the log id is properly kept
    * up.  HRegionStore does this every time it opens a new region.
    * @param conf
-   * @param rsServices An interface we can request flushes against.
+   * @param flusher An interface we can request flushes against.
    * @param reporter An interface we can report progress against.
    * @return new HRegion
    *
@@ -3089,7 +3090,7 @@ public class HRegion implements HeapSize { // , Writable{
    * @param withCoprocessor invoke coprocessor or not. We don't want to
    * always invoke cp for this private method.
    */
-  private List<KeyValue> get(final Get get, boolean withCoprocessor)
+  private List<KeyValue> get(Get get, boolean withCoprocessor)
   throws IOException {
     Scan scan = new Scan(get);
 
@@ -3098,7 +3099,7 @@ public class HRegion implements HeapSize { // , Writable{
 
     // pre-get CP hook
     if ((coprocessorHost != null) && withCoprocessor) {
-      results = coprocessorHost.preGet(get, results);
+      get = coprocessorHost.preGet(get);
     }
 
     InternalScanner scanner = null;
@@ -3602,6 +3603,7 @@ public class HRegion implements HeapSize { // , Writable{
     }
   };
 
+
   /**
    * Facility for dumping and compacting catalog tables.
    * Only does catalog tables since these are only tables we for sure know
@@ -3640,5 +3642,4 @@ public class HRegion implements HeapSize { // , Writable{
        if (bc != null) bc.shutdown();
      }
   }
-
 }

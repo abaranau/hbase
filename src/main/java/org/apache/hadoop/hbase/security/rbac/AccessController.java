@@ -248,24 +248,23 @@ public class AccessController extends BaseRegionObserver {
   }
 
   @Override
-  public Result preGetClosestRowBefore(CoprocessorEnvironment e, byte[] row,
-      byte[] family, Result result) throws IOException {
+  public void preGetClosestRowBefore(CoprocessorEnvironment e, byte[] row,
+      byte[] family) throws IOException {
     requirePermission(TablePermission.Action.READ, e,
         (family != null ? Lists.newArrayList(family) : null));
-    return result;
   }
 
   @Override
-  public List<KeyValue> preGet(CoprocessorEnvironment e, Get get,
-      final List<KeyValue> results) throws IOException {
+  public Get preGet(CoprocessorEnvironment e, Get get) throws IOException {
     requirePermission(TablePermission.Action.READ, e, get.familySet());
-    return results;
+    return get;
   }
 
   @Override
-  public void preExists(CoprocessorEnvironment e, Get get)
+  public Get preExists(CoprocessorEnvironment e, Get get)
       throws IOException {
     requirePermission(TablePermission.Action.READ, e, get.familySet());
+    return get;
   }
 
   @Override
@@ -276,12 +275,11 @@ public class AccessController extends BaseRegionObserver {
   }
 
   @Override
-  public Map<byte[], List<KeyValue>> postPut(final CoprocessorEnvironment e,
+  public void postPut(final CoprocessorEnvironment e,
       final Map<byte[], List<KeyValue>> familyMap) {
     if (isMetaRegion) {
       updateACL(e, familyMap);
     }
-    return familyMap;
   }
 
   @Override
@@ -292,26 +290,25 @@ public class AccessController extends BaseRegionObserver {
   }
 
   @Override
-  public Map<byte[], List<KeyValue>> postDelete(CoprocessorEnvironment e,
+  public void postDelete(CoprocessorEnvironment e,
       Map<byte[], List<KeyValue>> familyMap) throws CoprocessorException {
     if (isMetaRegion) {
       updateACL(e, familyMap);
     }
-    return familyMap;
   }
 
   @Override
-  public void preScannerOpen(CoprocessorEnvironment e, Scan scan)
+  public Scan preScannerOpen(CoprocessorEnvironment e, Scan scan)
       throws IOException {
     requirePermission(TablePermission.Action.READ, e,
         Arrays.asList(scan.getFamilies()));
+    return scan;
   }
 
   @Override
-  public List<KeyValue> preScannerNext(CoprocessorEnvironment e,
-      long scannerId, List<KeyValue> results) throws IOException {
-    requirePermission(TablePermission.Action.READ, e, getFamilies(results));
-    return results;
+  public void preScannerNext(CoprocessorEnvironment e,
+      long scannerId) throws IOException {
+    requirePermission(TablePermission.Action.READ, e, null);
   }
 
   @Override
