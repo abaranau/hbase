@@ -130,6 +130,7 @@ public class TestWALReplay {
     HRegionInfo hri = createBasic3FamilyHRegionInfo(tableNameStr);
     Path basedir = new Path(hbaseRootDir, tableNameStr);
     deleteDir(basedir);
+    fs.mkdirs(new Path(basedir, hri.getEncodedName()));
 
     final byte [] tableName = Bytes.toBytes(tableNameStr);
     final byte [] rowName = tableName;
@@ -338,6 +339,7 @@ public class TestWALReplay {
     final HRegionInfo hri = createBasic3FamilyHRegionInfo(tableNameStr);
     final Path basedir = new Path(hbaseRootDir, tableNameStr);
     deleteDir(basedir);
+    fs.mkdirs(new Path(basedir, hri.getEncodedName()));
     final HLog wal = createWAL(this.conf);
     final byte[] tableName = Bytes.toBytes(tableNameStr);
     final byte[] rowName = tableName;

@@ -58,6 +58,8 @@ import org.apache.hadoop.hbase.ipc.ExecRPCInvoker;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.Pair;
 import org.apache.hadoop.hbase.util.Writables;
+import org.apache.hadoop.hbase.zookeeper.ZKUtil;
+import org.apache.zookeeper.KeeperException;
 
 /**
  * Used to communicate with a single HBase table.
@@ -199,14 +201,18 @@ public class HTable implements HTableInterface {
   }
 
   /**
-   * TODO Might want to change this to public, would be nice if the number
-   * of threads would automatically change when servers were added and removed
    * @return the number of region servers that are currently running
    * @throws IOException if a remote or network exception occurs
    */
-  int getCurrentNrHRS() throws IOException {
-    HBaseAdmin admin = new HBaseAdmin(this.configuration);
-    return admin.getClusterStatus().getServers();
+  public int getCurrentNrHRS() throws IOException {
+    try {
+      // We go to zk rather than to master to get count of regions to avoid
+      // HTable having a Master dependency.  See HBase-2828
+      return ZKUtil.getNumberOfChildren(this.connection.getZooKeeperWatcher(),
+          this.connection.getZooKeeperWatcher().rsZNode);
+    } catch (KeeperException ke) {
+      throw new IOException("Unexpected ZooKeeper exception", ke);
+    }
   }
 
   /**
