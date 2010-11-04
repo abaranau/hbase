@@ -91,7 +91,11 @@
           <para>Here is a quick guide to starting up a standalone HBase
           instance, creating a table and inserting rows into a table via the
           <link linkend="shell">HBase Shell</link>, and then cleaning up and shutting
-          down your running instance.</para>
+          down your running instance.
+      </para>
+          <para>Be warned that the HBase started using these
+              instructions is for play only.  See the next section for how to
+              set up a non-toy HBase deploy.</para>
 
           <listitem>
             <para>Download and unpack the latest stable release.</para>
@@ -217,13 +221,12 @@ hbase(main):013:0&gt; drop 'test'
             <para><programlisting>$ ./bin/stop-hbase.sh
 stopping hbase...............</programlisting></para>
           </listitem>
-        </itemizedlist></para>
-        <para>To learn how to set up a HBase in distributed mode, see the next section.</para>
+        </itemizedlist>
+      </para>
     </section>
 
     <section xml:id="notsoquick">
       <title>Not-so-quick Start</title>
-
       <para>The HBase API overview document contains a detailed <link
       xlink:href="http://hbase.apache.org/docs/current/api/overview-summary.html#overview_description">Getting
       Started</link> with a list of requirements and description of the
@@ -237,6 +240,13 @@ stopping hbase...............</programlisting></para>
   <chapter xml:id="configuration">
     <title>Configuration</title>
     <para>
+        HBase uses the same configuration system as Hadoop.
+        To configure a deploy, edit a file of environment variables
+        in <filename>conf/hbase-env.sh</filename> -- this configuration
+        is used mostly by the launcher shell scripts getting the cluster
+        off the ground -- and then add configuration to an xml file to
+        do things like override HBase defaults, tell HBase what Filesystem to
+        use, and the location of the ZooKeeper ensemble.
     </para>
 
     <section>
@@ -277,7 +287,8 @@ stopping hbase...............</programlisting></para>
 
       <section xml:id="required_configuration"><title>Required Configurations</title>
       <para>Here are some configurations you must configure to suit
-      your deploy.
+          your deploy.  Failure to do so will almost certainly result in
+          <emphasis>data loss</emphasis>.
       </para>
       <section xml:id="ulimit">
       <title><varname>ulimit</varname></title>
@@ -290,7 +301,10 @@ stopping hbase...............</programlisting></para>
       2010-04-06 03:04:37,542 INFO org.apache.hadoop.hdfs.DFSClient: Abandoning block blk_-6935524980745310745_1391901
       </programlisting>
       Do yourself a favor and change the upper bound on the number of file descriptors.
-      Set it to north of 10k.  See the above referenced FAQ for how.</para>
+      Set it to north of 10k.  See the above referenced FAQ for how. Verify this change
+      has taken effect by checking the first line in your HBase logs.  It'll print out
+      the ulimit available to the running process  (A frequent mistake is upping the ulimit
+      for a user other than the user running the HBase process).</para>
       <para>To be clear, upping the file descriptors for the user who is
       running the HBase process is an operating system configuration, not an
       HBase configuration.
@@ -309,6 +323,13 @@ stopping hbase...............</programlisting></para>
         &lt;value&gt;2047&lt;/value&gt;
       &lt;/property&gt;
       </programlisting>
+      <footnote>
+      <para>
+          For background see
+          <link xlink:href="http://wiki.apache.org/hadoop/Hbase/Troubleshooting#A5">Problem: "xceiverCount 258 exceeds the limit of concurrent xcievers 256"</link>.
+</para>
+      </footnote>
+
       </para>
       </section>
       </section>
@@ -337,15 +358,85 @@ stopping hbase...............</programlisting></para>
       </section>
       </section>
 
-
-
       </section>
   </chapter>
 
   <chapter xml:id="shell">
     <title>The HBase Shell</title>
 
-    <para></para>
+    <para>
+        The HBase Shell is <link xlink:href="http://jruby.org">(J)Ruby</link>'s
+        IRB with some HBase particular verbs addded.  Anything you can do in
+        IRB, you should be able to do in the HBase Shell.</para>
+        <para>To run the HBase shell, 
+        do as follows:
+        <programlisting>$ ./bin/hbase shell</programlisting>
+        Type <command>help</command> followed by <command>&lt;RETURN&gt;</command>
+        to see a complete listing of commands available.
+        Take some time to study the tail of the help screen where it
+        does a synopsis of IRB syntax specifying arguments -- usually you must
+        quote -- and how to write out dictionaries, etc.
+    </para>
+
+    <section><title>Scripting</title>
+        <para>For examples scripting HBase, look in the
+            HBase <filename>bin</filename> directory.  Look at the files
+            that end in <filename>*.rb</filename>.  To run one of these
+            files, do as follows:
+            <programlisting>$ ./bin/hbase org.jruby.Main PATH_TO_SCRIPT</programlisting>
+        </para>
+    </section>
+
+    <section><title>Shell Tricks</title>
+        <section><title><filename>irbrc</filename></title>
+                <para>Create an <filename>.irbrc</filename> file for yourself in your
+                    home directory. Add HBase Shell customizations. A useful one is
+                    command history:
+                    <programlisting>
+                        $ more .irbrc
+                        require 'irb/ext/save-history'
+                        IRB.conf[:SAVE_HISTORY] = 100
+                        IRB.conf[:HISTORY_FILE] = "#{ENV['HOME']}/.irb-save-history"
+                    </programlisting>
+                </para>
+        </section>
+        <section><title>Log data to timestamp</title>
+            <para>
+                To convert the date '08/08/16 20:56:29' from an hbase log into a timestamp, do:
+                <programlisting>
+                    hbase(main):021:0> import java.text.SimpleDateFormat
+                    hbase(main):022:0> import java.text.ParsePosition
+                    hbase(main):023:0> SimpleDateFormat.new("yy/MM/dd HH:mm:ss").parse("08/08/16 20:56:29", ParsePosition.new(0)).getTime() => 1218920189000
+                </programlisting>
+            </para>
+            <para>
+                To go the other direction:
+                <programlisting>
+                    hbase(main):021:0> import java.util.Date
+                    hbase(main):022:0> Date.new(1218920189000).toString() => "Sat Aug 16 20:56:29 UTC 2008"
+                </programlisting>
+            </para>
+            <para>
+                To output in a format that is exactly like hbase log format is a pain messing with
+                <link xlink:href="http://download.oracle.com/javase/6/docs/api/java/text/SimpleDateFormat.html">SimpleDateFormat</link>.
+            </para>
+        </section>
+        <section><title>Debug</title>
+            <section><title>Shell debug switch</title>
+                <para>You can set a debug switch in the shell to see more output
+                    -- e.g. more of the stack trace on exception --
+                    when you run a command:
+                    <programlisting>hbase> debug &lt;RETURN&gt;</programlisting>
+                 </para>
+            </section>
+            <section><title>DEBUG log level</title>
+                <para>To enable DEBUG level logging in the shell,
+                    launch it with the <command>-d</command> option.
+                    <programlisting>$ ./bin/hbase shell -d</programlisting>
+               </para>
+            </section>
+         </section>
+    </section>
   </chapter>
 
   <chapter xml:id="datamodel">
