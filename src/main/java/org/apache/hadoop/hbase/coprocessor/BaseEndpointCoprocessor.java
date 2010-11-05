@@ -23,11 +23,16 @@ import org.apache.hadoop.hbase.ipc.HBaseRPCProtocolVersion;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 
 /**
- * CommandTarget base class.
- * Extend this class and implement related CoprocessorProtocol
- * to implement actually class running at region server.
+ * This abstract class provides default implementation of an Endpoint.
+ * It also maintains a CoprocessorEnvironment object which can be 
+ * used to access region resource.
+ * 
+ * It's recommended to use this abstract class to implement your Endpoint.
+ * However you still can just implement the interface CoprocessorProtocol
+ * and Coprocessor to develop an Endpoint. But you won't be able to access
+ * the region related resource, i.e., CoprocessorEnvironment.
  */
-public abstract class BaseEndpoint implements Coprocessor,
+public abstract class BaseEndpointCoprocessor implements Coprocessor,
     CoprocessorProtocol {
   private CoprocessorEnvironment env;
 
@@ -54,8 +59,8 @@ public abstract class BaseEndpoint implements Coprocessor,
   public void preOpen(CoprocessorEnvironment e) { }
 
   /**
-   * It initializes the coprocessor resource. If you need to override this
-   * method, you'd better call super(e). 
+   * It initializes the coprocessor resources. If you need to override this
+   * method, please remember to call super(e). 
    */
   @Override
   public void postOpen(CoprocessorEnvironment e) {

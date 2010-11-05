@@ -34,7 +34,7 @@ import java.io.IOException;
  * By extending it, you can create you own region observer without
  * overriding all abstract methods of Coprocessor and RegionObserver.
  */
-public abstract class BaseRegionObserver implements Coprocessor,
+public abstract class BaseRegionObserverCoprocessor implements Coprocessor,
     RegionObserver {
 
   @Override

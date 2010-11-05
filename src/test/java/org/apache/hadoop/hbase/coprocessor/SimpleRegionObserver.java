@@ -43,7 +43,7 @@ import static org.junit.Assert.*;
  * A sample region observer that tests the RegionObserver interface.
  * It works with TestRegionObserverInterface to provide the test case.
  */
-public class SimpleRegionObserver extends BaseRegionObserver {
+public class SimpleRegionObserver extends BaseRegionObserverCoprocessor {
   static final Log LOG = LogFactory.getLog(TestRegionObserverInterface.class);
   
   boolean beforeDelete = true;

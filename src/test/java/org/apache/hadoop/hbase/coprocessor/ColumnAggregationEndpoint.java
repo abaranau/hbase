@@ -32,7 +32,7 @@ import org.apache.hadoop.hbase.util.Bytes;
 /**
  * The aggregation implementation at a region.
  */
-public class ColumnAggregationEndpoint extends BaseEndpoint
+public class ColumnAggregationEndpoint extends BaseEndpointCoprocessor
 implements ColumnAggregationProtocol {
 
   @Override

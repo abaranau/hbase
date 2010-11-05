@@ -43,7 +43,7 @@ import junit.framework.TestCase;
 public class TestRegionObserverStacking extends TestCase {
   static final String DIR = "test/build/data/TestRegionObserverStacking/";
 
-  public static class ObserverA extends BaseRegionObserver {
+  public static class ObserverA extends BaseRegionObserverCoprocessor {
     long id;
     @Override
     public void postPut(final CoprocessorEnvironment e,
@@ -56,7 +56,7 @@ public class TestRegionObserverStacking extends TestCase {
     }
   }
 
-  public static class ObserverB extends BaseRegionObserver {
+  public static class ObserverB extends BaseRegionObserverCoprocessor {
     long id;
     @Override
     public void postPut(final CoprocessorEnvironment e,
@@ -69,7 +69,7 @@ public class TestRegionObserverStacking extends TestCase {
     }
   }
 
-  public static class ObserverC extends BaseRegionObserver {
+  public static class ObserverC extends BaseRegionObserverCoprocessor {
     long id;
 
     @Override

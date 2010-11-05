@@ -3098,7 +3098,7 @@ public class HRegion implements HeapSize { // , Writable{
     List<KeyValue> getResults = new ArrayList<KeyValue>();
 
     // pre-get CP hook
-    if ((coprocessorHost != null) && withCoprocessor) {
+    if (withCoprocessor && (coprocessorHost != null)) {
       get = coprocessorHost.preGet(get);
     }
 
@@ -3118,7 +3118,7 @@ public class HRegion implements HeapSize { // , Writable{
       results = getResults;
     }
     // post-get CP hook
-    if ((coprocessorHost != null) && withCoprocessor) {
+    if (withCoprocessor && (coprocessorHost != null)) {
       results = coprocessorHost.postGet(get, results);
     }
 
