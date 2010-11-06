@@ -23,6 +23,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.lang.Thread.UncaughtExceptionHandler;
+import java.net.ConnectException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -1024,7 +1025,11 @@ public class AssignmentManager extends ZooKeeperListener {
       LOG.debug("Server " + server + " region CLOSE RPC returned false");
     } catch (NotServingRegionException nsre) {
       // Failed to close, so pass through and reassign
-      LOG.debug("Server " + server + " returned NotServingRegionException");
+      LOG.info("Server " + server + " returned NotServingRegionException");
+    } catch (ConnectException e) {
+      // Failed to connect, so pass through and reassign
+      LOG.info("Server " + server + " returned ConnectException " +
+        e.getMessage());
     } catch (RemoteException re) {
       if (re.unwrapRemoteException() instanceof NotServingRegionException) {
         // Failed to close, so pass through and reassign
@@ -1199,6 +1204,7 @@ public class AssignmentManager extends ZooKeeperListener {
     for (Result result : results) {
       Pair<HRegionInfo,HServerInfo> region =
         MetaReader.metaRowToRegionPairWithInfo(result);
+      if (region == null) continue;
       HServerInfo regionLocation = region.getSecond();
       HRegionInfo regionInfo = region.getFirst();
       if (regionLocation == null) {
@@ -1322,6 +1328,34 @@ public class AssignmentManager extends ZooKeeperListener {
   public RegionState isRegionInTransition(final HRegionInfo hri) {
     synchronized (this.regionsInTransition) {
       return this.regionsInTransition.get(hri.getEncodedName());
+    }
+  }
+
+  /**
+   * Clears the specified region from being in transition.
+   * <p>
+   * Used only by HBCK tool.
+   * @param hri
+   */
+  public void clearRegionFromTransition(HRegionInfo hri) {
+    synchronized (this.regionsInTransition) {
+      this.regionsInTransition.remove(hri.getEncodedName());
+    }
+    synchronized (this.regions) {
+      this.regions.remove(hri);
+    }
+    synchronized (this.regionPlans) {
+      this.regionPlans.remove(hri.getEncodedName());
+    }
+    synchronized (this.servers) {
+      for (List<HRegionInfo> regions : this.servers.values()) {
+        for (int i=0;i<regions.size();i++) {
+          if (regions.get(i).equals(hri)) {
+            regions.remove(i);
+            break;
+          }
+        }
+      }
     }
   }
 

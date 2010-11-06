@@ -80,6 +80,10 @@ public class MiniHBaseCluster {
     init(numMasters, numRegionServers);
   }
 
+  public Configuration getConfiguration() {
+    return this.conf;
+  }
+
   /**
    * Override Master so can add inject behaviors testing.
    */

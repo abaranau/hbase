@@ -280,7 +280,7 @@ public interface HRegionInterface extends HBaseRPCProtocolVersion, Stoppable, Ab
    * @return All regions online on this region server
    * @throws IOException e
    */
-  public NavigableSet<HRegionInfo> getOnlineRegions();
+  public List<HRegionInfo> getOnlineRegions();
 
   /**
    * Method used when a master is taking the place of another failed one.
@@ -337,6 +337,17 @@ public interface HRegionInterface extends HBaseRPCProtocolVersion, Stoppable, Ab
    * @throws IOException
    */
   public boolean closeRegion(final HRegionInfo region)
+  throws IOException;
+
+  /**
+   * Closes the specified region and will use or not use ZK during the close
+   * according to the specified flag.
+   * @param region region to close
+   * @param zk true if transitions should be done in ZK, false if not
+   * @return true if closing region, false if not
+   * @throws IOException
+   */
+  public boolean closeRegion(final HRegionInfo region, final boolean zk)
   throws IOException;
 
   // Region administrative methods
