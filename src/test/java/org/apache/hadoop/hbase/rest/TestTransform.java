@@ -50,13 +50,13 @@ public class TestTransform {
 
   private static final HBaseTestingUtility TEST_UTIL = new HBaseTestingUtility();
   private static final HBaseRESTTestingUtility REST_TEST_UTIL = 
-    new HBaseRESTTestingUtility(TEST_UTIL.getConfiguration());
+    new HBaseRESTTestingUtility();
   private static Client client;
 
   @BeforeClass
   public static void setUpBeforeClass() throws Exception {
     TEST_UTIL.startMiniCluster(3);
-    REST_TEST_UTIL.startServletContainer();
+    REST_TEST_UTIL.startServletContainer(TEST_UTIL.getConfiguration());
     client = new Client(new Cluster().add("localhost", 
       REST_TEST_UTIL.getServletPort()));
     HBaseAdmin admin = TEST_UTIL.getHBaseAdmin();
@@ -91,7 +91,7 @@ public class TestTransform {
     assertEquals(response.getCode(), 200);
 
     // get the table contents directly
-    HTable table = new HTable(TABLE);
+    HTable table = new HTable(TEST_UTIL.getConfiguration(), TABLE);
     Get get = new Get(Bytes.toBytes(ROW_1));
     get.addFamily(Bytes.toBytes(CFA));
     get.addFamily(Bytes.toBytes(CFB));

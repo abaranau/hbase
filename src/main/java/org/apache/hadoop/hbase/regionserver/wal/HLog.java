@@ -614,20 +614,20 @@ public class HLog implements Syncable {
    */
   private byte [][] cleanOldLogs() throws IOException {
     Long oldestOutstandingSeqNum = getOldestOutstandingSeqNum();
-    // Get the set of all log files whose final ID is older than or
-    // equal to the oldest pending region operation
+    // Get the set of all log files whose last sequence number is smaller than
+    // the oldest edit's sequence number.
     TreeSet<Long> sequenceNumbers =
       new TreeSet<Long>(this.outputfiles.headMap(
-        (Long.valueOf(oldestOutstandingSeqNum.longValue() + 1L))).keySet());
+        (Long.valueOf(oldestOutstandingSeqNum.longValue()))).keySet());
     // Now remove old log files (if any)
     int logsToRemove = sequenceNumbers.size();
     if (logsToRemove > 0) {
       if (LOG.isDebugEnabled()) {
         // Find associated region; helps debugging.
         byte [] oldestRegion = getOldestRegion(oldestOutstandingSeqNum);
-        LOG.debug("Found " + logsToRemove + " hlogs to remove " +
-          " out of total " + this.outputfiles.size() + "; " +
-          "oldest outstanding sequenceid is " + oldestOutstandingSeqNum +
+        LOG.debug("Found " + logsToRemove + " hlogs to remove" +
+          " out of total " + this.outputfiles.size() + ";" +
+          " oldest outstanding sequenceid is " + oldestOutstandingSeqNum +
           " from region " + Bytes.toString(oldestRegion));
       }
       for (Long seq : sequenceNumbers) {
@@ -724,7 +724,7 @@ public class HLog implements Syncable {
       }
       if (currentfilenum >= 0) {
         oldFile = computeFilename(currentfilenum);
-        this.outputfiles.put(Long.valueOf(this.logSeqNum.get() - 1), oldFile);
+        this.outputfiles.put(Long.valueOf(this.logSeqNum.get()), oldFile);
       }
     }
     return oldFile;
@@ -872,8 +872,13 @@ public class HLog implements Syncable {
       this.numEntries.incrementAndGet();
     }
 
-    // sync txn to file system
-    this.sync(regionInfo.isMetaRegion());
+    // Sync if catalog region, and if not then check if that table supports
+    // deferred log flushing
+    if (regionInfo.isMetaRegion() ||
+        !regionInfo.getTableDesc().isDeferredLogFlush()) {
+      // sync txn to file system
+      this.sync();
+    }
   }
 
   /**
@@ -924,8 +929,13 @@ public class HLog implements Syncable {
       // Only count 1 row as an unflushed entry.
       this.unflushedEntries.incrementAndGet();
     }
-    // sync txn to file system
-    this.sync(info.isMetaRegion());
+    // Sync if catalog region, and if not then check if that table supports
+    // deferred log flushing
+    if (info.isMetaRegion() ||
+        !info.getTableDesc().isDeferredLogFlush()) {
+      // sync txn to file system
+      this.sync();
+    }
   }
 
   /**

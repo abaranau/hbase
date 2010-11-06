@@ -325,9 +325,10 @@ public class MetaReader {
    */
   public static Pair<HRegionInfo, HServerInfo> metaRowToRegionPairWithInfo(
       Result data) throws IOException {
-    HRegionInfo info = Writables.getHRegionInfo(
-      data.getValue(HConstants.CATALOG_FAMILY,
-          HConstants.REGIONINFO_QUALIFIER));
+    byte [] bytes = data.getValue(HConstants.CATALOG_FAMILY,
+      HConstants.REGIONINFO_QUALIFIER);
+    if (bytes == null) return null;
+    HRegionInfo info = Writables.getHRegionInfo(bytes);
     final byte[] value = data.getValue(HConstants.CATALOG_FAMILY,
       HConstants.SERVER_QUALIFIER);
     if (value != null && value.length > 0) {
@@ -505,6 +506,7 @@ public class MetaReader {
         if (result != null && result.size() > 0) {
           Pair<HRegionInfo, HServerInfo> pair =
             metaRowToRegionPairWithInfo(result);
+          if (pair == null) continue;
           if (pair.getSecond() == null || !pair.getSecond().equals(hsi)) {
             continue;
           }
