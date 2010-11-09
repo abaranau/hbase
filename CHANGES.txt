@@ -1,5 +1,5 @@
 HBase Change Log
-Release 0.21.0 - Unreleased
+Release 0.90.0 - Unreleased
   INCOMPATIBLE CHANGES
    HBASE-1822  Remove the deprecated APIs
    HBASE-1848  Fixup shell for HBASE-1822
@@ -657,6 +657,14 @@ Release 0.21.0 - Unreleased
                and it'll hold up regionserver shutdown
    HBASE-3204  Reenable deferred log flush
    HBASE-3195  [rest] Fix TestTransform breakage on Hudson
+   HBASE-3205  TableRecordReaderImpl.restart NPEs when first next is restarted
+   HBASE-3208  HLog.findMemstoresWithEditsOlderThan needs to look for edits
+               that are equal to too
+   HBASE-3141  Master RPC server needs to be started before an RS can check in
+   HBASE-3112  Enable and disable of table needs a bit of loving in new master
+   HBASE-3207  If we get IOException when closing a region, we should still
+               remove it from online regions and complete the close in ZK
+   HBASE-3199  large response handling: some fixups and cleanups
 
 
   IMPROVEMENTS
@@ -1114,6 +1122,12 @@ Release 0.21.0 - Unreleased
                without losing important messages
    HBASE-3201  Add accounting of empty regioninfo_qualifier rows in meta to
                hbasefsck.
+   HBASE-3048  unify code for major/minor compactions (Amit via jgray)
+   HBASE-3083  Major compaction check should use new timestamp meta
+               information in HFiles (rather than dfs timestamp) along with
+               TTL to allow major even if single file
+   HBASE-3194  HBase should run on both secure and vanilla versions of Hadoop 0.20
+               (Gary Helmling via Stack)
 
 
   NEW FEATURES
@@ -1172,6 +1186,8 @@ Release 0.21.0 - Unreleased
    HBASE-2201  JRuby shell for replication
    HBASE-2946  Increment multiple columns in a row at once
    HBASE-3013  Tool to verify data in two clusters
+   HBASE-2896  Retain assignment information between cluster
+               shutdown/startup
 
 
   OPTIMIZATIONS

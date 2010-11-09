@@ -201,6 +201,8 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
     // set the thread name now we have an address
     setName(MASTER + "-" + this.address);
 
+    this.rpcServer.startThreads();
+
     // Hack! Maps DFSClient => Master for logs.  HDFS made this
     // config param for task trackers, but we can piggyback off of it.
     if (this.conf.get("mapred.task.id") == null) {
@@ -523,10 +525,8 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
         this.infoServer.setAttribute(MASTER, this);
         this.infoServer.start();
       }
-
-      // Start the server last so everything else is running before we start
-      // receiving requests.
-      this.rpcServer.start();
+      // Start allowing requests to happen.
+      this.rpcServer.openServer();
       if (LOG.isDebugEnabled()) {
         LOG.debug("Started service threads");
       }
@@ -796,13 +796,13 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
   }
 
   public void enableTable(final byte [] tableName) throws IOException {
-    new EnableTableHandler(this, tableName, catalogTracker, assignmentManager)
-      .process();
+    this.executorService.submit(new EnableTableHandler(this, tableName,
+      catalogTracker, assignmentManager));
   }
 
   public void disableTable(final byte [] tableName) throws IOException {
-    new DisableTableHandler(this, tableName, catalogTracker, assignmentManager)
-      .process();
+    this.executorService.submit(new DisableTableHandler(this, tableName,
+      catalogTracker, assignmentManager));
   }
 
   /**
@@ -858,7 +858,8 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
     if (!MetaReader.tableExists(getCatalogTracker(), tableNameStr)) {
       throw new TableNotFoundException(tableNameStr);
     }
-    if (!getAssignmentManager().isTableDisabled(Bytes.toString(tableName))) {
+    if (!getAssignmentManager().getZKTable().
+        isDisabledTable(Bytes.toString(tableName))) {
       throw new TableNotDisabledException(tableName);
     }
   }
